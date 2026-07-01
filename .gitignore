@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# Node
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Environment / secrets (keep .env.example committed)
+.env
+.env.*
+!.env.example
+
+# Local data / cache
+*.sqlite
+*.sqlite3
+*.db
+data/
+*.log
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Headroom MCP config — hard-codes a machine-specific absolute path to headroom.exe
+.mcp.json

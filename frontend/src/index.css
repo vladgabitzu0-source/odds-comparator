@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Design tokens. Single source of truth for the brand palette so App.jsx and
+   these CSS rules can never drift apart. Gold is reserved for the logo and a
+   handful of highlights only, so it stays special.
+--------------------------------------------------------------------------- */
+:root {
+  --bg: #0d1117; /* page background */
+  --card: #161d27; /* cards + default table row */
+  --card-alt: #1a222e; /* zebra (alternating) row */
+  --border: #1f2733; /* hairline separators */
+  --gold: #e8be6a; /* accent: logo + highlights (used sparingly) */
+  --gold-dim: #8a6d35; /* ".ro" and secondary gold details */
+  --text: #c9d1d9; /* primary text */
+  --muted: #8b949e; /* muted / secondary text */
+  --green: #3fb950; /* positive value chips */
+  --red: #f85149; /* errors */
+}
+
+/* Match the app background so overscroll / margins never flash white, and set
+   the base typography. Only two weights are used anywhere: 400 and 500. */
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---------------------------------------------------------------------------
+   Comparison table rows.
+   Zebra striping + a soft hover wash. The row's single best-value odd (marked
+   with .best-odd in the JSX) only lights up gold while its row is hovered — so
+   gold stays rare and the "best odd to take" reveals itself on interaction.
+--------------------------------------------------------------------------- */
+.match-row {
+  transition: background-color 0.15s ease;
+}
+.match-row:nth-child(even) {
+  background-color: var(--card-alt);
+}
+.match-row:hover {
+  background-color: #1c2632; /* defined after nth-child so hover wins */
+}
+
+.best-odd {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  transition: color 0.15s ease, border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+/* !important so the gold text wins over the inline color set on the odd in the
+   JSX (inline styles otherwise out-specify a plain selector). */
+.match-row:hover .best-odd {
+  color: var(--gold) !important;
+  border-color: rgba(232, 190, 106, 0.45);
+  background-color: rgba(232, 190, 106, 0.07);
+}
+
+/* Each odd is an affiliate link. No underline/blue-link look — only the pointer
+   cursor and a gold hover signal it's clickable, matching the best-odd accent. */
+.odd-link {
+  cursor: pointer;
+  text-decoration: none;
+  border-radius: 6px;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+.odd-link:hover {
+  color: var(--gold) !important;
+  background-color: rgba(232, 190, 106, 0.07);
+}
+
+/* ---------------------------------------------------------------------------
+   Affiliate rows inside the "best odds per bookmaker" cards.
+--------------------------------------------------------------------------- */
+.affiliate-row {
+  transition: background-color 0.15s ease;
+}
+.affiliate-row:hover {
+  background-color: rgba(255, 255, 255, 0.035);
+}
+.aff-odd {
+  transition: color 0.15s ease;
+}
+.affiliate-row:hover .aff-odd {
+  color: var(--gold);
+}
+
+/* Nav tabs: inactive tabs brighten toward primary text on hover; the active
+   tab's gold underline is set inline in the JSX. */
+.nav-tab {
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+/* Honour users who ask the OS to reduce motion. */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

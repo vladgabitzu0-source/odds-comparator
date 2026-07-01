@@ -1,0 +1,8 @@
+# Don't copy local/dev artifacts into the image. The container builds its own
+# dependencies from requirements.txt, so a host venv (especially a Windows one)
+# must never be copied in.
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
