@@ -30,19 +30,17 @@ from fastapi.middleware.cors import CORSMiddleware
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BACKEND_DIR)
 
-# scrape_all_isolated() runs both scrapers, each wrapped so one failing source
+# scrape_all_isolated() gathers every source, each wrapped so one failing source
 # can't take the other down; calculate_value()/best_odds_per_bookmaker() then
-# analyse whatever data we have. SOURCES is the {name: scraper} registry.
+# analyse whatever data we have. SOURCE_NAMES lists every source that appears in
+# the response — the live Superbet scraper plus the synthetic "sample" demo
+# source, which scrape_all_isolated mirrors from Superbet's odds each run.
 from analysis.calculator import (
-    SOURCES,
+    SOURCE_NAMES,
     best_odds_per_bookmaker,
     calculate_value,
     scrape_all_isolated,
 )
-
-# Source names we track, e.g. ("superbet", "betano"). Derived from the registry
-# so adding a scraper there is automatically picked up here.
-SOURCE_NAMES = tuple(SOURCES)
 
 # --- Logging -----------------------------------------------------------------
 # A dedicated logger with its own timestamped handler so per-source scrape lines
@@ -225,8 +223,8 @@ async def refresh_cache(force=False):
         # data for sources that just succeeded, last-good data for those that
         # didn't. calculate_value pairs the two sources by fixture.
         superbet_matches = _sources["superbet"]["matches"]
-        betano_matches = _sources["betano"]["matches"]
-        results = calculate_value(superbet_matches, betano_matches)
+        sample_matches = _sources["sample"]["matches"]
+        results = calculate_value(superbet_matches, sample_matches)
 
         # Split the flat results list into the two tiers the frontend cares about.
         main = [r for r in results if r["tier"] == "main"]

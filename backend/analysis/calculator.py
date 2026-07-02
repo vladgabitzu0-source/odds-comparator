@@ -2,8 +2,11 @@
 calculator.py — the core "value finder" for the odds comparator.
 
 What it does, end to end:
-  1. Runs both scrapers (Superbet + Betano) to get their current 1X2 odds.
-  2. Pairs up the SAME fixture across the two sites (fuzzy team-name matching,
+  1. Gathers 1X2 odds from every source: the live Superbet scraper plus the
+     static "Demo Source" sample source (scrapers/sample_data.py). The public
+     build ships one real scraper, so the sample source stands in as the second
+     set of odds to compare against — see that file for the why.
+  2. Pairs up the SAME fixture across the sources (fuzzy team-name matching,
      reused from check_overlap.py).
   3. Converts every odd to an implied probability: p = 1 / odd.
   4. For each outcome (home / draw / away) it takes the MEDIAN probability across
@@ -16,10 +19,11 @@ Why implied probability?
   you. So when one site's implied probability sits well BELOW the median, that
   site is offering better-than-average odds — a potential value bet.
 
-About "median" with two sites:
-  The median of two numbers is just their average, so the two sites' divergences
-  come out as mirror images (one positive, one negative). The architecture is
-  kept median-based on purpose, so adding a 3rd/4th site later "just works".
+About "median" with two sources:
+  The median of two numbers is just their average, so the two sources'
+  divergences come out as mirror images (one positive, one negative). The
+  architecture is kept median-based on purpose, so adding a 3rd/4th source later
+  "just works".
 
 Run it from the backend/ folder:
     cd backend && py analysis/calculator.py
@@ -38,7 +42,11 @@ BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BACKEND_DIR)
 
 from scrapers.superbet import scrape_superbet
-from scrapers.betano import scrape_betano
+# Synthetic, clearly-labelled demo source. It replaces the removed live second
+# scraper: instead of scraping, it MIRRORS Superbet's odds each run (with a small
+# random nudge) so the cross-source comparison always has something to compare
+# against. ensure_obscure_examples tops the base list up with obscure fixtures.
+from scrapers.sample_data import scrape_sample, ensure_obscure_examples
 
 # Reuse the team-name parsing/tokenizing helpers from check_overlap.py. We do
 # NOT reuse its _teams_match: we define a stricter one below (see _teams_match).
@@ -126,85 +134,86 @@ def _teams_match(a, b):
     return shared / max(len(wa), len(wb)) >= TEAM_MATCH_THRESHOLD
 
 
-def _orientation(sb_name, bt_name):
+def _orientation(sb_name, sp_name):
     """How do these two fixture names line up? Returns "straight", "swapped",
     or None if they aren't the same fixture at all.
 
-    The sites don't always agree on which team is "home", so a match can line up
-    either straight (home<->home, away<->away) or swapped (home<->away). We need
-    to know which, because if it's swapped we must swap Betano's home/away odds
-    before comparing — otherwise we'd compare a home-win odd against an away-win
-    odd and get nonsense.
+    The sources don't always agree on which team is "home", so a match can line
+    up either straight (home<->home, away<->away) or swapped (home<->away). We
+    need to know which, because if it's swapped we must swap the sample source's
+    home/away odds before comparing — otherwise we'd compare a home-win odd
+    against an away-win odd and get nonsense.
     """
     sb_home, sb_away = _team_names(sb_name)
-    bt_home, bt_away = _team_names(bt_name)
-    if _teams_match(sb_home, bt_home) and _teams_match(sb_away, bt_away):
+    sp_home, sp_away = _team_names(sp_name)
+    if _teams_match(sb_home, sp_home) and _teams_match(sb_away, sp_away):
         return "straight"
-    if _teams_match(sb_home, bt_away) and _teams_match(sb_away, bt_home):
+    if _teams_match(sb_home, sp_away) and _teams_match(sb_away, sp_home):
         return "swapped"
     return None
 
 
-def _oriented_betano_odds(betano_match, orientation):
-    """Return Betano's {home, draw, away} odds rotated to match Superbet's view.
+def _oriented_sample_odds(sample_match, orientation):
+    """Return the sample source's {home, draw, away} odds rotated to Superbet's view.
 
-    If the fixture was listed with the teams swapped on Betano, its "home" odd is
-    really for the team Superbet calls "away", so we swap them back. The draw odd
-    is the same either way.
+    If the fixture was listed with the teams swapped on the other source, its
+    "home" odd is really for the team Superbet calls "away", so we swap them back.
+    The draw odd is the same either way.
     """
     if orientation == "swapped":
         return {
-            "home": betano_match["away"],
-            "draw": betano_match["draw"],
-            "away": betano_match["home"],
+            "home": sample_match["away"],
+            "draw": sample_match["draw"],
+            "away": sample_match["home"],
         }
     return {
-        "home": betano_match["home"],
-        "draw": betano_match["draw"],
-        "away": betano_match["away"],
+        "home": sample_match["home"],
+        "draw": sample_match["draw"],
+        "away": sample_match["away"],
     }
 
 
-def _analyse_outcome(superbet_odd, betano_odd):
-    """Compare one outcome's odds across the two sites and return its analysis.
+def _analyse_outcome(superbet_odd, sample_odd):
+    """Compare one outcome's odds across the two sources and return its analysis.
 
     Result shape:
-        {"median_prob", "superbet_div", "betano_div", "best_site", "is_value"}
+        {"median_prob", "superbet_div", "sample_div", "best_site", "is_value"}
     """
     # Step 3: odds -> implied probabilities.
     sb_prob = 1 / superbet_odd
-    bt_prob = 1 / betano_odd
+    sp_prob = 1 / sample_odd
 
-    # Step 4: median implied probability across the sites.
-    median_prob = statistics.median([sb_prob, bt_prob])
+    # Step 4: median implied probability across the sources.
+    median_prob = statistics.median([sb_prob, sp_prob])
 
-    # Step 5: how far each site sits from the median. A POSITIVE divergence means
-    # the site's probability is below the median, i.e. its odds are more generous.
+    # Step 5: how far each source sits from the median. A POSITIVE divergence
+    # means its probability is below the median, i.e. its odds are more generous.
     sb_div = median_prob - sb_prob
-    bt_div = median_prob - bt_prob
+    sp_div = median_prob - sp_prob
 
-    # The "best" site for this outcome is the one offering the HIGHEST odd — i.e.
-    # the LOWEST implied probability — because that's the most generous payout for
-    # you. We pick it straight from the odds so the intent is unmistakable. (With
-    # two sites this is the same site as the largest positive divergence, but
-    # stating it in terms of odds avoids any sign confusion.) Ties go to Superbet.
-    best_site = "superbet" if superbet_odd >= betano_odd else "betano"
-    best_div = sb_div if best_site == "superbet" else bt_div
+    # The "best" source for this outcome is the one offering the HIGHEST odd —
+    # i.e. the LOWEST implied probability — because that's the most generous
+    # payout for you. We pick it straight from the odds so the intent is
+    # unmistakable. (With two sources this is the same one as the largest positive
+    # divergence, but stating it in terms of odds avoids any sign confusion.)
+    # Ties go to Superbet.
+    best_site = "superbet" if superbet_odd >= sample_odd else "sample"
+    best_div = sb_div if best_site == "superbet" else sp_div
 
-    # Step 6: it's a value bet if the best site beats the median by > 4%.
+    # Step 6: it's a value bet if the best source beats the median by > 4%.
     is_value = best_div > VALUE_THRESHOLD
 
     return {
         "median_prob": round(median_prob, 3),
         "superbet_div": round(sb_div, 3),
-        "betano_div": round(bt_div, 3),
+        "sample_div": round(sp_div, 3),
         "best_site": best_site,
         "is_value": is_value,
     }
 
 
-def calculate_value(superbet_matches, betano_matches):
-    """Pair up fixtures across the two sites and analyse each one.
+def calculate_value(superbet_matches, sample_matches):
+    """Pair up fixtures across the two sources and analyse each one.
 
     Pure function (no scraping) so it's easy to test with hand-made data. Returns
     the list of result dicts described in the module docstring.
@@ -212,16 +221,16 @@ def calculate_value(superbet_matches, betano_matches):
     results = []
 
     for sb in superbet_matches:
-        # Find the first Betano fixture that is the same match as this Superbet
-        # one, remembering whether the teams were listed swapped.
-        for bt in betano_matches:
-            orientation = _orientation(sb["match"], bt["match"])
+        # Find the first sample-source fixture that is the same match as this
+        # Superbet one, remembering whether the teams were listed swapped.
+        for sp in sample_matches:
+            orientation = _orientation(sb["match"], sp["match"])
             if orientation is None:
                 continue
 
-            # Betano odds rotated into Superbet's home/draw/away orientation, so
-            # every outcome compares like-for-like.
-            betano_odds = _oriented_betano_odds(bt, orientation)
+            # Sample-source odds rotated into Superbet's home/draw/away
+            # orientation, so every outcome compares like-for-like.
+            sample_odds = _oriented_sample_odds(sp, orientation)
             superbet_odds = {
                 "home": sb["home"],
                 "draw": sb["draw"],
@@ -230,53 +239,54 @@ def calculate_value(superbet_matches, betano_matches):
 
             # Sanity filter: skip lopsided fixtures where any of the 6 odds is
             # above MAX_SANE_ODD. Very high odds (heavy underdogs, obscure
-            # reserve/youth games) are where the two sites disagree most, which
+            # reserve/youth games) are where the two sources disagree most, which
             # produces huge but meaningless "value" divergences. Dropping them
             # keeps the results focused on realistic, bettable matches.
-            all_odds = list(superbet_odds.values()) + list(betano_odds.values())
+            all_odds = list(superbet_odds.values()) + list(sample_odds.values())
             if any(odd > MAX_SANE_ODD for odd in all_odds):
                 break  # not a usable pair; move on to the next Superbet match
 
             analysis = {
-                outcome: _analyse_outcome(superbet_odds[outcome], betano_odds[outcome])
+                outcome: _analyse_outcome(superbet_odds[outcome], sample_odds[outcome])
                 for outcome in OUTCOMES
             }
 
             # Competition/league name. We prefer Superbet's (the match name also
-            # comes from Superbet), falling back to Betano's if Superbet didn't
-            # capture one. .get() keeps this safe for hand-made test data.
-            competition = sb.get("competition") or bt.get("competition")
+            # comes from Superbet), falling back to the sample source's if
+            # Superbet didn't capture one. .get() keeps this safe for hand-made
+            # test data.
+            competition = sb.get("competition") or sp.get("competition")
 
             results.append({
                 "match": sb["match"],
                 "tier": _tier(sb["match"]),
                 "competition": competition,
                 "superbet": superbet_odds,
-                "betano": betano_odds,
-                # Per-match deep links from each scraper (may be None if a site
+                "sample": sample_odds,
+                # Per-match deep links from each source (may be None if a source
                 # didn't expose one). Used to build the affiliate links below.
                 "superbet_url": sb.get("url"),
-                "betano_url": bt.get("url"),
+                "sample_url": sp.get("url"),
                 "analysis": analysis,
             })
-            break  # one Betano match is enough; move on to the next Superbet one
+            break  # one sample match is enough; move on to the next Superbet one
 
     return results
 
 
 async def run_analysis():
-    """Scrape both sites, then compute the value analysis for common matches."""
-    # Run the scrapers one after another (not concurrently) to keep it simple and
-    # avoid two browsers competing for resources.
+    """Gather every source, then compute the value analysis for common matches."""
+    # Superbet is scraped live; the demo source is a synthetic mirror of it.
     print("Scraping Superbet...")
     superbet_matches = await scrape_superbet()
-    print("Scraping Betano...")
-    betano_matches = await scrape_betano()
+    superbet_matches = ensure_obscure_examples(superbet_matches)
+    print("Synthesising demo mirror source...")
+    sample_matches = await scrape_sample(superbet_matches)
 
-    print(f"\nSuperbet: {len(superbet_matches)} matches")
-    print(f"Betano:   {len(betano_matches)} matches")
+    print(f"\nSuperbet:      {len(superbet_matches)} matches")
+    print(f"Sample (demo): {len(sample_matches)} matches")
 
-    results = calculate_value(superbet_matches, betano_matches)
+    results = calculate_value(superbet_matches, sample_matches)
     print(f"Common matches analysed: {len(results)}")
     return results
 
@@ -287,12 +297,18 @@ async def run_analysis():
 # other source — or the whole API — down with it. The scraping logic itself is
 # untouched; we only wrap the calls.
 
-# The scrapers we orchestrate, keyed by the source name used everywhere else
-# (these keys must match the ones calculate_value / best_odds_per_bookmaker use).
+# The LIVE scrapers we run over the network, keyed by source name. The demo
+# "sample" source is deliberately NOT here: it isn't scraped independently, it's
+# synthesised from Superbet's odds each run (see scrape_all_isolated below).
 SOURCES = {
     "superbet": scrape_superbet,
-    "betano": scrape_betano,
 }
+
+# Every source name that appears in the API response, in display order — the live
+# Superbet scrape plus the synthetic "sample" demo source. Used by the API to
+# build its per-source cache/freshness block, so it must list every source
+# scrape_all_isolated returns a status for.
+SOURCE_NAMES = ("superbet", "sample")
 
 # How few matches counts as a FAILED scrape. A real DOM break returns ~0, while a
 # healthy football pre-match scrape returns dozens-to-hundreds. Anything below
@@ -331,15 +347,39 @@ async def _scrape_one(name, scraper):
 
 
 async def scrape_all_isolated():
-    """Scrape every source, each isolated so one failure can't sink the others.
+    """Gather every source, each isolated so one failure can't sink the others.
 
-    Returns {source_name: status_dict}. Sources are scraped sequentially (one
-    browser at a time, as before). A crash/timeout/empty result in one source is
-    caught and reported, and we still go on to scrape the next source.
+    Returns {source_name: status_dict}. The live scraper(s) run first (one browser
+    at a time, as before); a crash/timeout/empty result is caught and reported.
+
+    The "sample" demo source is then synthesised from THIS run's Superbet odds
+    rather than scraped: scrape_sample mirrors every fixture with a small random
+    nudge, guaranteeing 100% overlap so the value comparison always has work to
+    do. It is built only when Superbet actually returned data — if Superbet
+    failed, we hand scrape_sample an empty list, so the sample also reports empty
+    and the cache keeps each source's last-good data (same as any failed source).
     """
     statuses = {}
     for name, scraper in SOURCES.items():
         statuses[name] = await _scrape_one(name, scraper)
+
+    if statuses["superbet"]["ok"]:
+        # Top the base list up with a couple of fabricated obscure-tier fixtures
+        # if the live list is light on reserve/women/youth games, so BOTH the
+        # "main" and "obscure" tabs reliably have content. These must sit on the
+        # Superbet side too (the comparison reads a fixture's tier from the
+        # Superbet match name), so we add them here, before mirroring, and store
+        # the topped-up list back as Superbet's matches so the analysis sees them.
+        base = ensure_obscure_examples(statuses["superbet"]["matches"])
+        statuses["superbet"]["matches"] = base
+        statuses["superbet"]["count"] = len(base)
+        superbet_matches = base
+    else:
+        superbet_matches = []
+
+    statuses["sample"] = await _scrape_one(
+        "sample", lambda: scrape_sample(superbet_matches)
+    )
     return statuses
 
 
@@ -369,25 +409,30 @@ def top_value_bets(results, limit=10):
     return value_bets[:limit]
 
 
-# Generic football landing page per bookmaker. Used ONLY as a fallback when a
-# match has no per-match deep link (the scrapers normally capture one).
+# Generic landing page per source. Used ONLY as a fallback when a match has no
+# per-match deep link (the live scraper normally captures one; the sample source
+# never has one). The sample source has no real bookmaker behind it, so it points
+# at a harmless placeholder rather than any affiliate destination.
 AFFILIATE_LINKS = {
     "superbet": "https://superbet.ro/pariuri-sportive/fotbal",
-    "betano": "https://ro.betano.com/sport/fotbal/",
+    "sample": "https://example.com/date-demo",
 }
 
-# Your affiliate tracking parameter per bookmaker, appended to every outgoing
-# link as a query-string (e.g. "btag=12345"). Each site uses its own parameter
+# Your affiliate tracking parameter per source, appended to every outgoing link
+# as a query-string (e.g. "btag=12345"). Each site uses its own parameter
 # name/value. Currently EMPTY = inactive: links go straight to the deep link with
 # no tracking param. Fill these in from your affiliate dashboards to activate
-# tracking — the wiring is already in place (see _with_affiliate below).
+# tracking — the wiring is already in place (see _with_affiliate below). The
+# sample source is demo data with no affiliate deal, so it stays empty.
 AFFILIATE_PARAMS = {
     "superbet": "",
-    "betano": "",
+    "sample": "",
 }
 
-# Internal site key -> display name used as the keys of the API response.
-BOOKMAKER_NAMES = {"superbet": "Superbet", "betano": "Betano"}
+# Internal source key -> display name used as the keys of the API response. The
+# sample source is labelled "Demo Source" so users can tell it apart from the real
+# bookmaker at a glance.
+BOOKMAKER_NAMES = {"superbet": "Superbet", "sample": "Demo Source"}
 
 
 def _with_affiliate(url, key):
@@ -414,8 +459,8 @@ def best_odds_per_bookmaker(results, limit=5):
     top `limit`.
 
     Returns a dict keyed by display name, e.g.:
-        {"Superbet": [ {match, outcome, odd, divergence, link}, ... ],
-         "Betano":   [ ... ]}
+        {"Superbet":     [ {match, outcome, odd, divergence, link}, ... ],
+         "Demo Source":  [ ... ]}
     """
     by_bookmaker = {}
 
@@ -423,7 +468,7 @@ def best_odds_per_bookmaker(results, limit=5):
         picks = []
         for result in results:
             # This bookmaker's best outcome in the match = the one where it beats
-            # the median by the most. f"{key}_div" is "superbet_div"/"betano_div".
+            # the median by the most. f"{key}_div" is "superbet_div"/"sample_div".
             best_outcome = max(
                 OUTCOMES, key=lambda o: result["analysis"][o][f"{key}_div"]
             )
@@ -460,7 +505,7 @@ if __name__ == "__main__":
     if not top:
         print("No value odds found right now.")
     for i, v in enumerate(top, start=1):
-        # e.g. "1. [betano] Home  @ 2.10  (+5.2%)  —  Team1 vs Team2"
+        # e.g. "1. [sample] Home  @ 2.10  (+5.2%)  —  Team1 vs Team2"
         print(
             f"{i:>2}. [{v['site']}] {v['outcome'].capitalize():<5} "
             f"@ {v['odd']:<5} ({v['divergence']:+.1%})  —  {v['match']}"

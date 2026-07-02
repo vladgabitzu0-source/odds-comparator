@@ -100,6 +100,14 @@ is scraped in isolation, so a single failing site degrades to stale-flagged data
 rather than taking the API down. The React frontend renders the comparison table
 and the per-bookmaker best-odds board.
 
+> **Note — this public build ships one live scraper.** The second live scraper is
+> not included here. So the comparison still has something to work against, the
+> second source ("Demo Source") is **synthetic: a mirror of the live Superbet odds
+> generated on each run**, with every price nudged a few percent so the fixtures
+> overlap 100% but the numbers differ and the divergence maths has real work to
+> do. It is not an independent hardcoded fixture list, and it is clearly labelled
+> as demo data throughout the UI. See `backend/scrapers/sample_data.py`.
+
 ## Running Locally
 
 **Prerequisites:** Python 3.11+ and Node.js 18+.

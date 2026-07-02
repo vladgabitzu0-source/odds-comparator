@@ -9,11 +9,12 @@ const API_BASE =
   "https://odds-comparator-production.up.railway.app";
 const API_URL = `${API_BASE}/api/odds`;
 
-// Generic football landing page per bookmaker. Used ONLY as a fallback when a
-// match has no per-match deep link. Mirrors AFFILIATE_LINKS in calculator.py.
+// Generic landing page per source. Used ONLY as a fallback when a match has no
+// per-match deep link. Mirrors AFFILIATE_LINKS in calculator.py. "sample" is the
+// static demo source (labelled "Demo Source"), not a real bookmaker.
 const FALLBACK_LINKS = {
   superbet: "https://superbet.ro/pariuri-sportive/fotbal",
-  betano: "https://ro.betano.com/sport/fotbal/",
+  sample: "https://example.com/date-demo",
 };
 
 // The three 1X2 outcomes, in display order (1 = home, X = draw, 2 = away).
@@ -106,7 +107,7 @@ function bestValue(match) {
   let best = null;
   for (const outcome of OUTCOMES) {
     const a = match.analysis[outcome];
-    const site = a.best_site; // "superbet" or "betano" (the higher odd)
+    const site = a.best_site; // "superbet" or "sample" (the higher odd)
     const divergence = a[`${site}_div`]; // how far above median, as a fraction
     const odd = match[site][outcome];
     if (best === null || divergence > best.divergence) {
@@ -122,7 +123,7 @@ function bestValue(match) {
 // the .best-odd class that lights up gold on row hover.
 function OutcomeCell({ outcome, match, best }) {
   const sb = match.superbet[outcome];
-  const bt = match.betano[outcome];
+  const sp = match.sample[outcome];
   const winnerSite = match.analysis[outcome].best_site; // higher odd here
   const isBestOutcome = best.outcome === outcome;
 
@@ -164,7 +165,7 @@ function OutcomeCell({ outcome, match, best }) {
     <td className="px-3 py-2 align-top">
       <div className="flex flex-col gap-0.5">
         {line("superbet", "Superbet", sb)}
-        {line("betano", "Betano", bt)}
+        {line("sample", "Demo Source", sp)}
       </div>
       {isBestOutcome && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1">
