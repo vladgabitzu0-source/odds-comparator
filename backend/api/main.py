@@ -110,6 +110,20 @@ _scrape_lock = asyncio.Lock()
 _warmup_task = None
 
 
+def _simulated_failures():
+    """Source names to force-fail, from SIMULATE_FAILED_SOURCES (development only).
+
+    Comma-separated, e.g. "sample" or "superbet,sample". Unset or empty (the
+    default) means nothing is simulated. Read on every refresh, never cached.
+    """
+    raw = os.environ.get("SIMULATE_FAILED_SOURCES", "")
+    names = {n.strip().lower() for n in raw.split(",") if n.strip()}
+    unknown = names - set(SOURCE_NAMES)
+    if unknown:
+        logger.warning("SIMULATE_FAILED_SOURCES: unknown source(s) %s", sorted(unknown))
+    return names & set(SOURCE_NAMES)
+
+
 def _is_fresh():
     """True if we have cached data younger than CACHE_TTL_SECONDS."""
     if _cache["data"] is None or _cache["timestamp"] is None:
@@ -198,6 +212,13 @@ async def refresh_cache(force=False):
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor() as pool:
             statuses = await loop.run_in_executor(pool, scrape_isolated_sync)
+
+        # Development aid: make the named sources report a failed refresh, exactly
+        # as if their scrape had raised. Their last good data is kept as usual.
+        for name in _simulated_failures():
+            logger.warning("%s: simulated failure (SIMULATE_FAILED_SOURCES)", name)
+            statuses[name] = {"name": name, "ok": False, "matches": [],
+                              "count": 0, "error": "simulated failure"}
 
         # Merge each source's result into the per-source cache. A successful
         # scrape replaces that source's data and bumps its last_success stamps;

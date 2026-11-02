@@ -116,6 +116,27 @@ public version uses the clearly labeled sample data described above. The
 architecture supports more sources: add a scraper that returns a list of matches
 and register it in `SOURCES` in `calculator.py`.
 
+## Development
+
+`SIMULATE_FAILED_SOURCES` (off by default) makes the named sources report a
+failed refresh, to try the stale/failed banners without breaking a real scrape.
+It takes comma-separated source names (`superbet`, `sample`), is read on every
+refresh, and a source that already has good data keeps serving it. A simulated
+failure shows up in `sources.<name>` with `ok_last_run: false` and
+`error: "simulated failure"`. The backend does not read `.env` files, so set it
+in the shell before starting the server.
+
+```powershell
+# Windows PowerShell
+$env:SIMULATE_FAILED_SOURCES = "sample"
+py -m uvicorn api.main:app --reload
+```
+
+```bash
+# Linux / macOS
+SIMULATE_FAILED_SOURCES=sample python3 -m uvicorn api.main:app --reload
+```
+
 ## Design decisions
 
 - **Async scraping pipeline.** Scrapers are `async` Playwright functions. The API
