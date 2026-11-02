@@ -430,9 +430,13 @@ AFFILIATE_PARAMS = {
 }
 
 # Internal source key -> display name used as the keys of the API response. The
-# sample source is labelled "Demo Source" so users can tell it apart from the real
-# bookmaker at a glance.
-BOOKMAKER_NAMES = {"superbet": "Superbet", "sample": "Demo Source"}
+# sample source is labelled "Sample data" so nobody mistakes it for a real
+# bookmaker.
+BOOKMAKER_NAMES = {"superbet": "Superbet", "sample": "Sample data"}
+
+# Sources that are synthetic rather than real bookmakers. The API and UI use this
+# to label them clearly as sample data.
+SAMPLE_SOURCES = frozenset({"sample"})
 
 
 def _with_affiliate(url, key):
@@ -449,6 +453,42 @@ def _with_affiliate(url, key):
     return f"{url}{separator}{param}"
 
 
+def _bookmaker_picks(results, key):
+    """Best-odds picks for ONE bookmaker, built only from that bookmaker's data.
+
+    Returns a list of pick dicts sorted by divergence (largest first). A result
+    that lacks this bookmaker's odds or analysis is skipped instead of raising,
+    so incomplete data for one source can never affect another source's list.
+    """
+    picks = []
+    for result in results:
+        odds = result.get(key)
+        analysis = result.get("analysis")
+        if not odds or not analysis:
+            continue
+        try:
+            # This bookmaker's best outcome in the match = the one where it beats
+            # the median by the most. f"{key}_div" is "superbet_div"/"sample_div".
+            best_outcome = max(OUTCOMES, key=lambda o: analysis[o][f"{key}_div"])
+            divergence = analysis[best_outcome][f"{key}_div"]
+            odd = odds[best_outcome]
+        except (KeyError, TypeError):
+            continue  # malformed entry: skip it, keep the rest
+        # Prefer the per-match deep link; fall back to the site's football
+        # landing page only when no deep link was captured. Either way we append
+        # the affiliate tracking parameter.
+        deep_link = result.get(f"{key}_url") or AFFILIATE_LINKS[key]
+        picks.append({
+            "match": result["match"],
+            "outcome": best_outcome,
+            "odd": odd,
+            "divergence": divergence,
+            "link": _with_affiliate(deep_link, key),
+        })
+    picks.sort(key=lambda p: p["divergence"], reverse=True)
+    return picks
+
+
 def best_odds_per_bookmaker(results, limit=5):
     """For each bookmaker, the `limit` matches where it is most generous.
 
@@ -458,37 +498,21 @@ def best_odds_per_bookmaker(results, limit=5):
     best outcome (its largest divergence), rank all matches by it, and keep the
     top `limit`.
 
+    Each bookmaker is computed independently (see _bookmaker_picks): an error or
+    missing data for one never empties the other's list. NOTE: divergence needs a
+    second source to compare against, so with only one source available there are
+    no common matches and every list is simply empty.
+
     Returns a dict keyed by display name, e.g.:
-        {"Superbet":     [ {match, outcome, odd, divergence, link}, ... ],
-         "Demo Source":  [ ... ]}
+        {"Superbet":    [ {match, outcome, odd, divergence, link}, ... ],
+         "Sample data": [ ... ]}
     """
     by_bookmaker = {}
-
     for key, display in BOOKMAKER_NAMES.items():
-        picks = []
-        for result in results:
-            # This bookmaker's best outcome in the match = the one where it beats
-            # the median by the most. f"{key}_div" is "superbet_div"/"sample_div".
-            best_outcome = max(
-                OUTCOMES, key=lambda o: result["analysis"][o][f"{key}_div"]
-            )
-            divergence = result["analysis"][best_outcome][f"{key}_div"]
-            # Prefer the per-match deep link; fall back to the site's football
-            # landing page only when no deep link was captured. Either way we
-            # append the affiliate tracking parameter.
-            deep_link = result.get(f"{key}_url") or AFFILIATE_LINKS[key]
-            picks.append({
-                "match": result["match"],
-                "outcome": best_outcome,
-                "odd": result[key][best_outcome],
-                "divergence": divergence,
-                "link": _with_affiliate(deep_link, key),
-            })
-
-        # Biggest divergence (most value vs. the median) first, keep the top ones.
-        picks.sort(key=lambda p: p["divergence"], reverse=True)
-        by_bookmaker[display] = picks[:limit]
-
+        try:
+            by_bookmaker[display] = _bookmaker_picks(results, key)[:limit]
+        except Exception:  # noqa: BLE001 — isolate each bookmaker from the others
+            by_bookmaker[display] = []
     return by_bookmaker
 
 

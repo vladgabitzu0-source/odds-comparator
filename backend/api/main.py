@@ -36,6 +36,8 @@ sys.path.insert(0, BACKEND_DIR)
 # the response — the live Superbet scraper plus the synthetic "sample" demo
 # source, which scrape_all_isolated mirrors from Superbet's odds each run.
 from analysis.calculator import (
+    BOOKMAKER_NAMES,
+    SAMPLE_SOURCES,
     SOURCE_NAMES,
     best_odds_per_bookmaker,
     calculate_value,
@@ -145,9 +147,12 @@ def _sources_freshness():
             age_seconds = int(now_mono - last_mono)
             stale = age_seconds > STALE_AFTER_SECONDS
         out[name] = {
+            "label": BOOKMAKER_NAMES.get(name, name),  # display name
+            "is_sample": name in SAMPLE_SOURCES,       # True = synthetic data
             "ok_last_run": src["ok"],          # did the latest attempt succeed?
             "matches": src["count"],           # matches currently served
-            "last_success": src["last_success_iso"],
+            "last_success": src["last_success_iso"],     # kept for compatibility
+            "last_success_at": src["last_success_iso"],  # ISO 8601 UTC, or None
             "age_seconds": age_seconds,        # None if never succeeded
             "stale": stale,
             "error": src["error"],             # latest failure summary, or None
@@ -162,6 +167,7 @@ def _build_response():
     freshly computed `sources` block.
     """
     data = dict(_cache["data"])
+    data["sample_sources"] = sorted(SAMPLE_SOURCES)
     data["sources"] = _sources_freshness()
     return data
 
@@ -236,6 +242,14 @@ async def refresh_cache(force=False):
             len(obscure),
         )
 
+        # generated_at is only advanced when at least one source refreshed
+        # successfully this round. If every source failed we are re-serving old
+        # data, so we keep the previous timestamp (None if there never was one)
+        # rather than pretending the data is new.
+        any_refreshed = any(statuses[name]["ok"] for name in SOURCE_NAMES)
+        previous = _cache["data"]["generated_at"] if _cache["data"] else None
+        generated_at = now_iso if any_refreshed else previous
+
         _cache["data"] = {
             "count": len(results),
             "main": main,
@@ -243,13 +257,14 @@ async def refresh_cache(force=False):
             # Per-bookmaker "best 5 odds of the day", computed across ALL common
             # matches (both tiers) — see Tab 2 in the project spec.
             "best_odds_per_bookmaker": best_odds_per_bookmaker(results),
-            # Wall-clock UTC time this refresh finished, ISO 8601 (e.g.
+            # Wall-clock UTC time of the last refresh in which at least one
+            # source succeeded (see above), ISO 8601 (e.g.
             # "2026-06-30T12:34:56.789012+00:00"). The frontend diffs this
             # against the current time for its "Actualizat acum X minute"
             # indicator, so it must be set HERE (when the data is produced), not
             # at request time. _cache["timestamp"] below stays monotonic for the
             # freshness/TTL logic, which must be immune to clock changes.
-            "generated_at": now_iso,
+            "generated_at": generated_at,
             # Per-source freshness (fresh/stale, last success, latest error) is
             # added at response time by _build_response so it's always current.
         }
