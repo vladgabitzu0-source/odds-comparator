@@ -172,14 +172,21 @@ SIMULATE_FAILED_SOURCES=sample python3 -m uvicorn api.main:app --reload
 
 ## Screenshots
 
-Placeholders; add images under `docs/screenshots/`.
+Captured at 1440x900 from the local app (live Superbet odds plus sample data).
 
-| View | File |
-| --- | --- |
-| Main leagues comparison | `docs/screenshots/comparison-main.png` |
-| Other leagues | `docs/screenshots/comparison-other.png` |
-| Best odds per bookmaker | `docs/screenshots/best-odds.png` |
-| Stale-source banner | `docs/screenshots/stale-banner.png` |
+**Comparison, normal state**
+
+![Comparison tab, normal state](docs/screenshots/comparison-normal.png)
+
+**One source failed.** This image was produced by rewriting the `sample` source's
+status in the API response to a failed refresh with a last success two hours
+earlier. It shows the banner layout; it is not a capture of a real outage.
+
+![Banner for a failed source](docs/screenshots/failed-source-banner.png)
+
+**Single-source mode**
+
+![Single-source mode with notice](docs/screenshots/single-source-mode.png)
 
 ## Disclaimer
 
