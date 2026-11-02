@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 
-// Where the FastAPI backend lives. Defaults to the Railway production API, but
-// can be overridden for local dev by setting VITE_API_URL in a .env file
-// (e.g. VITE_API_URL=http://localhost:8000) — Vite exposes VITE_* vars on
-// import.meta.env at build time.
+// Where the FastAPI backend lives. In development (npm run dev) it defaults to
+// the local backend. Production builds use VITE_API_URL (Vite inlines VITE_*
+// variables at build time); if that is unset the app calls the same origin.
 const API_BASE =
   import.meta.env.VITE_API_URL ||
-  "https://odds-comparator-production.up.railway.app";
+  (import.meta.env.DEV ? "http://localhost:8000" : "");
 const API_URL = `${API_BASE}/api/odds`;
 
 // Generic landing page per source. Used ONLY as a fallback when a match has no

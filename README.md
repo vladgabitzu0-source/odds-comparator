@@ -81,8 +81,9 @@ npm install
 npm run dev
 ```
 
-The frontend calls `http://localhost:8000` when `VITE_API_URL` is set to it (see
-`frontend/.env.example`).
+`npm run dev` talks to `http://localhost:8000` by default, so no configuration is
+needed. For a production build set `VITE_API_URL` to the backend's URL at build
+time (see `frontend/.env.example`); if it is unset the build calls the same origin.
 
 The first scrape takes a couple of minutes. Until it finishes, the API request
 waits for it.
