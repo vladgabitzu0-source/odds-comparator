@@ -142,6 +142,16 @@ py -m uvicorn api.main:app --reload
 SIMULATE_FAILED_SOURCES=sample python3 -m uvicorn api.main:app --reload
 ```
 
+### Tests
+
+The backend tests stub every scraper and need no network or browser.
+
+```bash
+cd backend
+python3 -m pip install -r requirements.txt -r requirements-dev.txt   # Windows: py -m pip ...
+python3 -m pytest                                                      # Windows: py -m pytest
+```
+
 ## Design decisions
 
 - **Async scraping pipeline.** Scrapers are `async` Playwright functions. The API
@@ -173,7 +183,7 @@ SIMULATE_FAILED_SOURCES=sample python3 -m uvicorn api.main:app --reload
   sample data.
 - Fixture matching is heuristic (fuzzy team names) and can mispair fixtures.
 - Odds above 10.0 are skipped to avoid meaningless divergences.
-- There are no automated tests in this repository.
+- Tests cover the analysis and API logic with stubbed scrapers; the live Superbet scraper and the frontend have no automated tests.
 
 ## Screenshots
 
