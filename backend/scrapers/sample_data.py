@@ -10,7 +10,7 @@ nothing to compare against, so the analysis would always come back empty.
 
 In the private build the second source was a live scraper. In this public
 portfolio copy that scraper has been removed on purpose, so we synthesise a
-stand-in instead. It is NOT a real bookmaker and is labelled "Demo Source"
+stand-in instead. It is NOT a real bookmaker and is labelled "Sample data"
 everywhere in the UI.
 
 How the demo data is produced
@@ -76,10 +76,10 @@ _MIN_OBSCURE = 2
 _OBSCURE_FALLBACK = [
     {"match": "AC Demo (R) vs FC Exemplu (R)",
      "home": 2.35, "draw": 3.30, "away": 2.85,
-     "competition": "Demo Source · ligă de rezerve"},
+     "competition": "Sample data · ligă de rezerve"},
     {"match": "Demo United (F) vs Exemplu City (F)",
      "home": 2.10, "draw": 3.45, "away": 3.15,
-     "competition": "Demo Source · ligă feminină"},
+     "competition": "Sample data · ligă feminină"},
 ]
 
 

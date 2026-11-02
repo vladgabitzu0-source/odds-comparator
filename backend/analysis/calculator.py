@@ -3,7 +3,7 @@ calculator.py — the core "value finder" for the odds comparator.
 
 What it does, end to end:
   1. Gathers 1X2 odds from every source: the live Superbet scraper plus the
-     static "Demo Source" sample source (scrapers/sample_data.py). The public
+     static "Sample data" sample source (scrapers/sample_data.py). The public
      build ships one real scraper, so the sample source stands in as the second
      set of odds to compare against — see that file for the why.
   2. Pairs up the SAME fixture across the sources (fuzzy team-name matching,
