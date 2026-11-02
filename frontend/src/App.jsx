@@ -1,17 +1,16 @@
 import { useEffect, useState } from "react";
 
-// Where the FastAPI backend lives. Defaults to the Railway production API, but
-// can be overridden for local dev by setting VITE_API_URL in a .env file
-// (e.g. VITE_API_URL=http://localhost:8000) — Vite exposes VITE_* vars on
-// import.meta.env at build time.
+// Where the FastAPI backend lives. In development (npm run dev) it defaults to
+// the local backend. Production builds use VITE_API_URL (Vite inlines VITE_*
+// variables at build time); if that is unset the app calls the same origin.
 const API_BASE =
   import.meta.env.VITE_API_URL ||
-  "https://odds-comparator-production.up.railway.app";
+  (import.meta.env.DEV ? "http://localhost:8000" : "");
 const API_URL = `${API_BASE}/api/odds`;
 
 // Generic landing page per source. Used ONLY as a fallback when a match has no
-// per-match deep link. Mirrors AFFILIATE_LINKS in calculator.py. "sample" is the
-// static demo source (labelled "Demo Source"), not a real bookmaker.
+// per-match deep link. Mirrors LANDING_PAGES in calculator.py. "sample" is the
+// static sample source (labelled "Sample data"), not a real bookmaker.
 const FALLBACK_LINKS = {
   superbet: "https://superbet.ro/pariuri-sportive/fotbal",
   sample: "https://example.com/date-demo",
@@ -93,6 +92,59 @@ function updatedLabel(mins) {
   return `Actualizat acum ${mins} de minute`;
 }
 
+// Format an ISO timestamp as a short local date/time for the stale banners
+// (e.g. "02.11.2026, 14:05"). Returns null when there is no timestamp.
+function formatTimestamp(iso) {
+  const ms = iso ? Date.parse(iso) : NaN;
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toLocaleString("ro-RO", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+// One banner per source that is stale or whose latest refresh failed. Shows the
+// last SUCCESSFUL update time (from the API) instead of implying fresh data.
+function SourceBanners({ sources }) {
+  const entries = Object.entries(sources || {}).filter(
+    ([, src]) => src.stale || src.ok_last_run === false,
+  );
+  if (entries.length === 0) return null;
+  return (
+    <div className="mb-4 flex flex-col gap-2">
+      {entries.map(([key, src]) => {
+        const name = src.label || key;
+        const last = formatTimestamp(src.last_success_at || src.last_success);
+        const kind = src.ok_last_run === false ? "Actualizare eșuată" : "Date vechi";
+        return (
+          <div
+            key={key}
+            role="status"
+            className="rounded px-3 py-2 text-[12px]"
+            style={{
+              backgroundColor: C.card,
+              border: `1px solid ${C.border}`,
+              color: C.muted,
+            }}
+          >
+            <span style={{ color: C.red, fontWeight: 500 }}>{kind}</span>
+            {" · "}
+            <span style={{ color: C.text }}>{name}</span>
+            {src.is_sample ? " (date exemplu)" : ""}
+            {": "}
+            {last
+              ? `ultima actualizare reușită ${last}`
+              : "nicio actualizare reușită încă"}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Show odds consistently as two decimals (1.9 -> "1.90"). Falls back to the raw
 // value if it isn't a finite number, so unexpected data never crashes a render.
 function fmtOdd(odd) {
@@ -129,7 +181,7 @@ function OutcomeCell({ outcome, match, best }) {
 
   // One "Bookmaker  odd" line. `winner` = this site has the higher odd for the
   // outcome (emphasised). `mark` = this exact odd is the row's best value. The
-  // odd itself is an affiliate link to the bookmaker's per-match deep link,
+  // odd itself is an outbound link to the bookmaker's per-match deep link,
   // falling back to its football landing page when no deep link was captured.
   const line = (site, label, odd) => {
     const winner = winnerSite === site;
@@ -140,13 +192,12 @@ function OutcomeCell({ outcome, match, best }) {
         <span className="text-[11px]" style={{ color: C.muted }}>
           {label}
         </span>
-        {/* Affiliate link. rel="sponsored" marks it as a paid link;
-            noopener/noreferrer for safety. Styling matches the plain odd — only
+        {/* Outbound link; noopener/noreferrer for safety. Styling matches the plain odd — only
             the cursor/hover signals it's clickable (best-odd lights up gold). */}
         <a
           href={href}
           target="_blank"
-          rel="sponsored noopener noreferrer"
+          rel="noopener noreferrer"
           className={
             mark ? "odd-link best-odd px-1.5 py-px" : "odd-link px-1.5 py-px"
           }
@@ -165,7 +216,7 @@ function OutcomeCell({ outcome, match, best }) {
     <td className="px-3 py-2 align-top">
       <div className="flex flex-col gap-0.5">
         {line("superbet", "Superbet", sb)}
-        {line("sample", "Demo Source", sp)}
+        {line("sample", "Sample data", sp)}
       </div>
       {isBestOutcome && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1">
@@ -270,7 +321,7 @@ function MatchesTable({ matches }) {
 }
 
 // One card = one bookmaker's top 5 most valuable odds of the day. Each row is an
-// affiliate link out to the bookmaker (deep-link per match where captured).
+// outbound link to the bookmaker (deep-link per match where captured).
 function BestOddsCard({ bookmaker, picks }) {
   return (
     <div
@@ -306,13 +357,13 @@ function BestOddsCard({ bookmaker, picks }) {
               key={`${p.match}-${p.outcome}`}
               style={{ borderTop: i === 0 ? "none" : `1px solid ${C.border}` }}
             >
-              {/* Whole row is the affiliate link. rel="sponsored" marks it as a
-                  paid link; noopener/noreferrer for safety. */}
+              {/* Whole row is a plain outbound link; noopener/noreferrer for
+                  safety. */}
               <a
                 href={p.link}
                 target="_blank"
-                rel="sponsored noopener noreferrer"
-                className="affiliate-row flex items-center gap-3 px-4 py-2.5 text-sm"
+                rel="noopener noreferrer"
+                className="outbound-link flex items-center gap-3 px-4 py-2.5 text-sm"
               >
                 <span
                   className="w-4 shrink-0 text-center text-[12px]"
@@ -338,7 +389,7 @@ function BestOddsCard({ bookmaker, picks }) {
                   >
                     +{(p.divergence * 100).toFixed(1)}%
                   </span>
-                  <span className="aff-odd" style={{ fontWeight: 500 }}>
+                  <span className="outbound-odd" style={{ fontWeight: 500 }}>
                     {fmtOdd(p.odd)}
                   </span>
                 </span>
@@ -371,6 +422,79 @@ function BestOddsSection({ byBookmaker }) {
           <BestOddsCard key={name} bookmaker={name} picks={byBookmaker[name]} />
         ))}
       </div>
+    </section>
+  );
+}
+
+// Single-source mode: fewer than two real sources, so there is nothing to compare
+// against. We list the one source's own matches and say why there is no ranking.
+function SingleSourceSection({ block }) {
+  const matches = block?.matches ?? [];
+  return (
+    <section>
+      <div className="mb-4">
+        <h2 className="text-lg" style={{ fontWeight: 500, color: C.text }}>
+          Cotele {block?.label || "sursei"} (o singură sursă)
+        </h2>
+        <p
+          role="note"
+          className="mt-2 rounded px-3 py-2 text-[12px]"
+          style={{
+            backgroundColor: C.card,
+            border: `1px solid ${C.border}`,
+            color: C.muted,
+          }}
+        >
+          Compararea între case de pariuri are nevoie de cel puțin două surse.
+          Momentan este disponibilă o singură sursă reală, așa că afișăm doar
+          cotele ei, fără clasament de valoare.
+        </p>
+      </div>
+      {matches.length === 0 ? (
+        <p className="text-sm" style={{ color: C.muted }}>
+          Nicio cotă disponibilă.
+        </p>
+      ) : (
+        <div
+          className="overflow-x-auto rounded-lg"
+          style={{ backgroundColor: C.card, border: `1px solid ${C.border}` }}
+        >
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ color: C.muted }} className="text-left text-[12px]">
+                <th className="px-3 py-2 font-normal">Meci</th>
+                <th className="px-3 py-2 text-right font-normal">1</th>
+                <th className="px-3 py-2 text-right font-normal">X</th>
+                <th className="px-3 py-2 text-right font-normal">2</th>
+              </tr>
+            </thead>
+            <tbody>
+              {matches.map((m) => (
+                <tr key={m.link + m.match} style={{ borderTop: `1px solid ${C.border}` }}>
+                  <td className="px-3 py-2">
+                    <a
+                      href={m.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: C.text }}
+                    >
+                      {m.match}
+                    </a>
+                    {m.competition && (
+                      <div className="text-[11px]" style={{ color: C.muted }}>
+                        {m.competition}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right">{fmtOdd(m.home)}</td>
+                  <td className="px-3 py-2 text-right">{fmtOdd(m.draw)}</td>
+                  <td className="px-3 py-2 text-right">{fmtOdd(m.away)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
@@ -443,7 +567,7 @@ function NavTab({ active, onClick, children }) {
   );
 }
 
-// Footer disclaimer — responsible gambling + affiliate transparency.
+// Footer disclaimer — responsible gambling notice.
 function Footer() {
   return (
     <footer
@@ -456,8 +580,7 @@ function Footer() {
       >
         ComparaCote.ro compară cote afișate de operatori licențiați ONJN. Cotele
         se modifică în timp real — verifică valoarea finală pe site-ul casei de
-        pariuri. Pariurile implică risc. 18+ | Joacă responsabil. Conținut cu
-        linkuri de afiliere.
+        pariuri. Pariurile implică risc. 18+ | Joacă responsabil.
       </p>
     </footer>
   );
@@ -467,21 +590,33 @@ export default function App() {
   const [data, setData] = useState(null); // { count, main, obscure, best_odds_per_bookmaker }
   const [error, setError] = useState(null);
   const [tab, setTab] = useState("main"); // "main" | "obscure" | "best"
-  const [fetchedAt, setFetchedAt] = useState(null); // client fetch time (ms)
-  const [now, setNow] = useState(Date.now()); // ticks so "acum X minute" updates
+  const [now, setNow] = useState(() => Date.now()); // ticks so "acum X minute" updates
 
-  // Fetch once when the component first mounts.
+  // Fetch on mount. While the backend reports "warming_up" (first refresh still
+  // running) we poll every 10 seconds until real data arrives.
   useEffect(() => {
-    fetch(API_URL)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
-      .then((payload) => {
-        setData(payload);
-        setFetchedAt(Date.now());
-      })
-      .catch((err) => setError(err.message));
+    let cancelled = false;
+    let timer = null;
+    const load = () => {
+      fetch(API_URL)
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        })
+        .then((payload) => {
+          if (cancelled) return;
+          setData(payload);
+          if (payload.status === "warming_up") timer = setTimeout(load, 10_000);
+        })
+        .catch((err) => {
+          if (!cancelled) setError(err.message);
+        });
+    };
+    load();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, []);
 
   // Re-render every 30s so the "Actualizat acum X minute" indicator stays live.
@@ -505,6 +640,28 @@ export default function App() {
     return <Spinner />;
   }
 
+  // First refresh still running: say so instead of showing empty tables.
+  if (data.status === "warming_up") {
+    return (
+      <div
+        className="flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center"
+        style={{ backgroundColor: C.bg }}
+      >
+        <div
+          className="h-12 w-12 animate-spin rounded-full border-4"
+          style={{ borderColor: C.border, borderTopColor: C.gold }}
+        />
+        <p role="status" style={{ color: C.text }}>
+          Prima actualizare este în curs, de obicei durează 2-3 minute.
+        </p>
+        <p className="text-sm" style={{ color: C.muted }}>
+          First refresh in progress, usually 2-3 minutes. This page updates
+          automatically.
+        </p>
+      </div>
+    );
+  }
+
   const tabs = [
     { key: "main", label: "Ligi principale", count: data.main.length },
     { key: "obscure", label: "Restul ligilor", count: data.obscure.length },
@@ -514,10 +671,17 @@ export default function App() {
   // Prefer the server's scrape-completion time (generated_at, ISO 8601 UTC) so
   // the indicator reflects how old the DATA is, not when this browser fetched
   // it. Fall back to the client fetch time if an older backend omits the field.
+  // Freshness comes from the server: generated_at is only set once at least one
+  // source refreshed successfully. If it is missing we show NO "updated" claim
+  // (rather than a misleading "0 minutes ago"); the banners explain why.
   const generatedMs = data.generated_at ? Date.parse(data.generated_at) : NaN;
-  const baseMs = Number.isFinite(generatedMs) ? generatedMs : fetchedAt;
-  const minutesAgo =
-    baseMs === null ? 0 : Math.max(0, Math.floor((now - baseMs) / 60000));
+  const hasFreshness = Number.isFinite(generatedMs);
+  const minutesAgo = hasFreshness
+    ? Math.max(0, Math.floor((now - generatedMs) / 60000))
+    : null;
+  const anyProblem = Object.values(data.sources || {}).some(
+    (src) => src.stale || src.ok_last_run === false,
+  );
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: C.bg }}>
@@ -573,20 +737,29 @@ export default function App() {
       </header>
 
       <main className="mx-auto max-w-5xl px-6 py-6">
-        {/* "Actualizat acum X minute" — based on when the browser fetched the
-            data (the API doesn't expose a scrape timestamp). */}
-        <div className="mb-4 flex items-center gap-2">
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: C.green }}
-          />
-          <span className="text-[12px]" style={{ color: C.muted }}>
-            {updatedLabel(minutesAgo)}
-          </span>
-        </div>
+        {/* Banner per stale/failed source, with its last successful update. */}
+        <SourceBanners sources={data.sources} />
+
+        {/* "Actualizat acum X minute" — based on the server's generated_at, and
+            hidden when no source has ever refreshed successfully. */}
+        {hasFreshness && (
+          <div className="mb-4 flex items-center gap-2">
+            <span
+              className="h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: anyProblem ? C.red : C.green }}
+            />
+            <span className="text-[12px]" style={{ color: C.muted }}>
+              {updatedLabel(minutesAgo)}
+            </span>
+          </div>
+        )}
 
         {tab === "best" ? (
-          <BestOddsSection byBookmaker={data.best_odds_per_bookmaker} />
+          data.comparison_mode === "single_source" ? (
+            <SingleSourceSection block={data.single_source} />
+          ) : (
+            <BestOddsSection byBookmaker={data.best_odds_per_bookmaker} />
+          )
         ) : (
           <MatchesTable matches={tab === "main" ? data.main : data.obscure} />
         )}

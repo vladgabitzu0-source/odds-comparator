@@ -36,8 +36,12 @@ sys.path.insert(0, BACKEND_DIR)
 # the response — the live Superbet scraper plus the synthetic "sample" demo
 # source, which scrape_all_isolated mirrors from Superbet's odds each run.
 from analysis.calculator import (
+    BOOKMAKER_NAMES,
+    SAMPLE_SOURCES,
     SOURCE_NAMES,
     best_odds_per_bookmaker,
+    real_sources,
+    single_source_listing,
     calculate_value,
     scrape_all_isolated,
 )
@@ -106,6 +110,20 @@ _scrape_lock = asyncio.Lock()
 _warmup_task = None
 
 
+def _simulated_failures():
+    """Source names to force-fail, from SIMULATE_FAILED_SOURCES (development only).
+
+    Comma-separated, e.g. "sample" or "superbet,sample". Unset or empty (the
+    default) means nothing is simulated. Read on every refresh, never cached.
+    """
+    raw = os.environ.get("SIMULATE_FAILED_SOURCES", "")
+    names = {n.strip().lower() for n in raw.split(",") if n.strip()}
+    unknown = names - set(SOURCE_NAMES)
+    if unknown:
+        logger.warning("SIMULATE_FAILED_SOURCES: unknown source(s) %s", sorted(unknown))
+    return names & set(SOURCE_NAMES)
+
+
 def _is_fresh():
     """True if we have cached data younger than CACHE_TTL_SECONDS."""
     if _cache["data"] is None or _cache["timestamp"] is None:
@@ -145,14 +163,46 @@ def _sources_freshness():
             age_seconds = int(now_mono - last_mono)
             stale = age_seconds > STALE_AFTER_SECONDS
         out[name] = {
+            "label": BOOKMAKER_NAMES.get(name, name),  # display name
+            "is_sample": name in SAMPLE_SOURCES,       # True = synthetic data
             "ok_last_run": src["ok"],          # did the latest attempt succeed?
             "matches": src["count"],           # matches currently served
-            "last_success": src["last_success_iso"],
+            "last_success": src["last_success_iso"],     # kept for compatibility
+            "last_success_at": src["last_success_iso"],  # ISO 8601 UTC, or None
             "age_seconds": age_seconds,        # None if never succeeded
             "stale": stale,
             "error": src["error"],             # latest failure summary, or None
         }
     return out
+
+
+def _status():
+    """Overall status string for the response.
+
+    "warming_up"  - no refresh has finished yet, or it is still running with no
+                    successful data so far (first load, usually 2-3 minutes).
+    "unavailable" - refreshes finished but none has ever succeeded.
+    "ok"          - at least one refresh has succeeded.
+    """
+    data = _cache["data"]
+    if data is not None and data["generated_at"] is not None:
+        return "ok"
+    if data is None or _scrape_lock.locked():
+        return "warming_up"
+    return "unavailable"
+
+
+def _empty_payload():
+    """Placeholder payload used before the first successful refresh."""
+    return {
+        "count": 0,
+        "main": [],
+        "obscure": [],
+        "best_odds_per_bookmaker": {},
+        "comparison_mode": "single_source",
+        "single_source": None,
+        "generated_at": None,
+    }
 
 
 def _build_response():
@@ -161,7 +211,9 @@ def _build_response():
     Shallow-copies the cached data so we never mutate it while overlaying the
     freshly computed `sources` block.
     """
-    data = dict(_cache["data"])
+    data = dict(_cache["data"] or _empty_payload())
+    data["status"] = _status()
+    data["sample_sources"] = sorted(SAMPLE_SOURCES)
     data["sources"] = _sources_freshness()
     return data
 
@@ -190,6 +242,13 @@ async def refresh_cache(force=False):
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor() as pool:
             statuses = await loop.run_in_executor(pool, scrape_isolated_sync)
+
+        # Development aid: make the named sources report a failed refresh, exactly
+        # as if their scrape had raised. Their last good data is kept as usual.
+        for name in _simulated_failures():
+            logger.warning("%s: simulated failure (SIMULATE_FAILED_SOURCES)", name)
+            statuses[name] = {"name": name, "ok": False, "matches": [],
+                              "count": 0, "error": "simulated failure"}
 
         # Merge each source's result into the per-source cache. A successful
         # scrape replaces that source's data and bumps its last_success stamps;
@@ -236,20 +295,52 @@ async def refresh_cache(force=False):
             len(obscure),
         )
 
+        # generated_at is only advanced when at least one source refreshed
+        # successfully this round. If every source failed we are re-serving old
+        # data, so we keep the previous timestamp (None if there never was one)
+        # rather than pretending the data is new.
+        any_refreshed = any(statuses[name]["ok"] for name in SOURCE_NAMES)
+        previous = _cache["data"]["generated_at"] if _cache["data"] else None
+        generated_at = now_iso if any_refreshed else previous
+
+        # Single-source mode: fewer than two REAL sources have data. Sample data
+        # doesn't count (it is synthetic). Cross-bookmaker comparison is then not
+        # meaningful, so instead of the ranking we expose the one real source's
+        # own matches. With two or more real sources, behaviour is unchanged.
+        available = [n for n in real_sources(SOURCE_NAMES) if _sources[n]["matches"]]
+        single_source = len(available) < 2
+        if single_source:
+            only = available[0] if available else None
+            best_odds = {}
+            single_block = {
+                "source": only,
+                "label": BOOKMAKER_NAMES.get(only) if only else None,
+                "matches": single_source_listing(only, _sources[only]["matches"])
+                if only else [],
+                "notice": "Cross-bookmaker comparison needs at least two sources.",
+            }
+        else:
+            best_odds = best_odds_per_bookmaker(results)
+            single_block = None
+
         _cache["data"] = {
             "count": len(results),
             "main": main,
             "obscure": obscure,
             # Per-bookmaker "best 5 odds of the day", computed across ALL common
             # matches (both tiers) — see Tab 2 in the project spec.
-            "best_odds_per_bookmaker": best_odds_per_bookmaker(results),
-            # Wall-clock UTC time this refresh finished, ISO 8601 (e.g.
+            # (Empty in single-source mode; see single_source below.)
+            "best_odds_per_bookmaker": best_odds,
+            "comparison_mode": "single_source" if single_source else "multi_source",
+            "single_source": single_block,
+            # Wall-clock UTC time of the last refresh in which at least one
+            # source succeeded (see above), ISO 8601 (e.g.
             # "2026-06-30T12:34:56.789012+00:00"). The frontend diffs this
             # against the current time for its "Actualizat acum X minute"
             # indicator, so it must be set HERE (when the data is produced), not
             # at request time. _cache["timestamp"] below stays monotonic for the
             # freshness/TTL logic, which must be immune to clock changes.
-            "generated_at": now_iso,
+            "generated_at": generated_at,
             # Per-source freshness (fresh/stale, last success, latest error) is
             # added at response time by _build_response so it's always current.
         }
@@ -318,12 +409,22 @@ async def health():
 async def get_odds():
     """Return the analysed odds, served from cache when it's still fresh.
 
-    Fast path: a fresh cache returns instantly. Otherwise (cache empty or older
-    than CACHE_TTL_SECONDS) we scrape, refresh the cache, and return the result.
+    Before the first refresh has produced any data we do NOT make the caller wait
+    for the ~2.5 minute scrape: we make sure one is running and return a
+    `warming_up` placeholder immediately, which the frontend polls.
+
+    Fast path: a fresh cache returns instantly. Otherwise (cache older than
+    CACHE_TTL_SECONDS) we scrape, refresh the cache, and return the result.
     Either way the response carries a live per-source freshness block (`sources`)
     so the caller can tell which sources are fresh vs stale. A single failing
     source never 500s this endpoint — it just shows up as stale/failed.
     """
+    global _warmup_task
+    if _cache["data"] is None:
+        # Start a scrape if none is in flight (the startup warm-up normally is).
+        if _warmup_task is None or _warmup_task.done():
+            _warmup_task = asyncio.create_task(refresh_cache())
+        return _build_response()
     if not _is_fresh():
         await refresh_cache()
     return _build_response()

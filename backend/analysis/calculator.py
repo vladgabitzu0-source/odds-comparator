@@ -3,7 +3,7 @@ calculator.py — the core "value finder" for the odds comparator.
 
 What it does, end to end:
   1. Gathers 1X2 odds from every source: the live Superbet scraper plus the
-     static "Demo Source" sample source (scrapers/sample_data.py). The public
+     static "Sample data" sample source (scrapers/sample_data.py). The public
      build ships one real scraper, so the sample source stands in as the second
      set of odds to compare against — see that file for the why.
   2. Pairs up the SAME fixture across the sources (fuzzy team-name matching,
@@ -264,7 +264,7 @@ def calculate_value(superbet_matches, sample_matches):
                 "superbet": superbet_odds,
                 "sample": sample_odds,
                 # Per-match deep links from each source (may be None if a source
-                # didn't expose one). Used to build the affiliate links below.
+                # didn't expose one). Used for the outbound links below.
                 "superbet_url": sb.get("url"),
                 "sample_url": sp.get("url"),
                 "analysis": analysis,
@@ -412,41 +412,84 @@ def top_value_bets(results, limit=10):
 # Generic landing page per source. Used ONLY as a fallback when a match has no
 # per-match deep link (the live scraper normally captures one; the sample source
 # never has one). The sample source has no real bookmaker behind it, so it points
-# at a harmless placeholder rather than any affiliate destination.
-AFFILIATE_LINKS = {
+# at a harmless placeholder.
+LANDING_PAGES = {
     "superbet": "https://superbet.ro/pariuri-sportive/fotbal",
     "sample": "https://example.com/date-demo",
 }
 
-# Your affiliate tracking parameter per source, appended to every outgoing link
-# as a query-string (e.g. "btag=12345"). Each site uses its own parameter
-# name/value. Currently EMPTY = inactive: links go straight to the deep link with
-# no tracking param. Fill these in from your affiliate dashboards to activate
-# tracking — the wiring is already in place (see _with_affiliate below). The
-# sample source is demo data with no affiliate deal, so it stays empty.
-AFFILIATE_PARAMS = {
-    "superbet": "",
-    "sample": "",
-}
-
 # Internal source key -> display name used as the keys of the API response. The
-# sample source is labelled "Demo Source" so users can tell it apart from the real
-# bookmaker at a glance.
-BOOKMAKER_NAMES = {"superbet": "Superbet", "sample": "Demo Source"}
+# sample source is labelled "Sample data" so nobody mistakes it for a real
+# bookmaker.
+BOOKMAKER_NAMES = {"superbet": "Superbet", "sample": "Sample data"}
+
+# Sources that are synthetic rather than real bookmakers. The API and UI use this
+# to label them clearly as sample data.
+SAMPLE_SOURCES = frozenset({"sample"})
 
 
-def _with_affiliate(url, key):
-    """Append this bookmaker's affiliate tracking parameter to a URL.
+def _bookmaker_picks(results, key):
+    """Best-odds picks for ONE bookmaker, built only from that bookmaker's data.
 
-    Picks "?" or "&" depending on whether the URL already has a query-string, so
-    we never produce a malformed link. Returns the URL unchanged when no tracking
-    parameter is configured for this bookmaker.
+    Returns a list of pick dicts sorted by divergence (largest first). A result
+    that lacks this bookmaker's odds or analysis is skipped instead of raising,
+    so incomplete data for one source can never affect another source's list.
     """
-    param = AFFILIATE_PARAMS.get(key, "")
-    if not param:
-        return url
-    separator = "&" if "?" in url else "?"
-    return f"{url}{separator}{param}"
+    picks = []
+    for result in results:
+        odds = result.get(key)
+        analysis = result.get("analysis")
+        if not odds or not analysis:
+            continue
+        try:
+            # This bookmaker's best outcome in the match = the one where it beats
+            # the median by the most. f"{key}_div" is "superbet_div"/"sample_div".
+            best_outcome = max(OUTCOMES, key=lambda o: analysis[o][f"{key}_div"])
+            divergence = analysis[best_outcome][f"{key}_div"]
+            odd = odds[best_outcome]
+        except (KeyError, TypeError):
+            continue  # malformed entry: skip it, keep the rest
+        # Prefer the per-match deep link; fall back to the site's football
+        # landing page only when no deep link was captured.
+        link = result.get(f"{key}_url") or LANDING_PAGES[key]
+        picks.append({
+            "match": result["match"],
+            "outcome": best_outcome,
+            "odd": odd,
+            "divergence": divergence,
+            "link": link,
+        })
+    picks.sort(key=lambda p: p["divergence"], reverse=True)
+    return picks
+
+
+def real_sources(source_names):
+    """The names in `source_names` that are real bookmakers (not sample data)."""
+    return [n for n in source_names if n not in SAMPLE_SOURCES]
+
+
+def single_source_listing(key, matches):
+    """List one real source's own matches with their odds (no comparison).
+
+    Used when fewer than two real sources are available: divergence needs a second
+    source, so instead of an empty view we show what this source offers. Fabricated
+    filler fixtures (flagged "synthetic") are left out so only real fixtures show.
+    """
+    fallback = LANDING_PAGES[key]
+    listing = []
+    for m in matches:
+        if m.get("synthetic"):
+            continue
+        listing.append({
+            "match": m["match"],
+            "tier": _tier(m["match"]),
+            "competition": m.get("competition"),
+            "home": m["home"],
+            "draw": m["draw"],
+            "away": m["away"],
+            "link": m.get("url") or fallback,
+        })
+    return listing
 
 
 def best_odds_per_bookmaker(results, limit=5):
@@ -458,37 +501,21 @@ def best_odds_per_bookmaker(results, limit=5):
     best outcome (its largest divergence), rank all matches by it, and keep the
     top `limit`.
 
+    Each bookmaker is computed independently (see _bookmaker_picks): an error or
+    missing data for one never empties the other's list. Divergence needs a real
+    second source to compare against; the API therefore skips this ranking in
+    single-source mode and uses single_source_listing instead.
+
     Returns a dict keyed by display name, e.g.:
-        {"Superbet":     [ {match, outcome, odd, divergence, link}, ... ],
-         "Demo Source":  [ ... ]}
+        {"Superbet":    [ {match, outcome, odd, divergence, link}, ... ],
+         "Sample data": [ ... ]}
     """
     by_bookmaker = {}
-
     for key, display in BOOKMAKER_NAMES.items():
-        picks = []
-        for result in results:
-            # This bookmaker's best outcome in the match = the one where it beats
-            # the median by the most. f"{key}_div" is "superbet_div"/"sample_div".
-            best_outcome = max(
-                OUTCOMES, key=lambda o: result["analysis"][o][f"{key}_div"]
-            )
-            divergence = result["analysis"][best_outcome][f"{key}_div"]
-            # Prefer the per-match deep link; fall back to the site's football
-            # landing page only when no deep link was captured. Either way we
-            # append the affiliate tracking parameter.
-            deep_link = result.get(f"{key}_url") or AFFILIATE_LINKS[key]
-            picks.append({
-                "match": result["match"],
-                "outcome": best_outcome,
-                "odd": result[key][best_outcome],
-                "divergence": divergence,
-                "link": _with_affiliate(deep_link, key),
-            })
-
-        # Biggest divergence (most value vs. the median) first, keep the top ones.
-        picks.sort(key=lambda p: p["divergence"], reverse=True)
-        by_bookmaker[display] = picks[:limit]
-
+        try:
+            by_bookmaker[display] = _bookmaker_picks(results, key)[:limit]
+        except Exception:  # noqa: BLE001 — isolate each bookmaker from the others
+            by_bookmaker[display] = []
     return by_bookmaker
 
 

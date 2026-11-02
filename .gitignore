@@ -33,3 +33,7 @@ data/
 
 # Headroom MCP config — hard-codes a machine-specific absolute path to headroom.exe
 .mcp.json
+
+# Local tooling (kept on disk, not published)
+.claude/
+scripts/headroom-proxy.ps1
