@@ -594,17 +594,31 @@ export default function App() {
   const [tab, setTab] = useState("main"); // "main" | "obscure" | "best"
   const [now, setNow] = useState(Date.now()); // ticks so "acum X minute" updates
 
-  // Fetch once when the component first mounts.
+  // Fetch on mount. While the backend reports "warming_up" (first refresh still
+  // running) we poll every 10 seconds until real data arrives.
   useEffect(() => {
-    fetch(API_URL)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
-      .then((payload) => {
-        setData(payload);
-      })
-      .catch((err) => setError(err.message));
+    let cancelled = false;
+    let timer = null;
+    const load = () => {
+      fetch(API_URL)
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        })
+        .then((payload) => {
+          if (cancelled) return;
+          setData(payload);
+          if (payload.status === "warming_up") timer = setTimeout(load, 10_000);
+        })
+        .catch((err) => {
+          if (!cancelled) setError(err.message);
+        });
+    };
+    load();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, []);
 
   // Re-render every 30s so the "Actualizat acum X minute" indicator stays live.
@@ -626,6 +640,28 @@ export default function App() {
 
   if (!data) {
     return <Spinner />;
+  }
+
+  // First refresh still running: say so instead of showing empty tables.
+  if (data.status === "warming_up") {
+    return (
+      <div
+        className="flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center"
+        style={{ backgroundColor: C.bg }}
+      >
+        <div
+          className="h-12 w-12 animate-spin rounded-full border-4"
+          style={{ borderColor: C.border, borderTopColor: C.gold }}
+        />
+        <p role="status" style={{ color: C.text }}>
+          Prima actualizare este în curs, de obicei durează 2-3 minute.
+        </p>
+        <p className="text-sm" style={{ color: C.muted }}>
+          First refresh in progress, usually 2-3 minutes. This page updates
+          automatically.
+        </p>
+      </div>
+    );
   }
 
   const tabs = [

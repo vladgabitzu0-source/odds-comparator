@@ -176,13 +176,43 @@ def _sources_freshness():
     return out
 
 
+def _status():
+    """Overall status string for the response.
+
+    "warming_up"  - no refresh has finished yet, or it is still running with no
+                    successful data so far (first load, usually 2-3 minutes).
+    "unavailable" - refreshes finished but none has ever succeeded.
+    "ok"          - at least one refresh has succeeded.
+    """
+    data = _cache["data"]
+    if data is not None and data["generated_at"] is not None:
+        return "ok"
+    if data is None or _scrape_lock.locked():
+        return "warming_up"
+    return "unavailable"
+
+
+def _empty_payload():
+    """Placeholder payload used before the first successful refresh."""
+    return {
+        "count": 0,
+        "main": [],
+        "obscure": [],
+        "best_odds_per_bookmaker": {},
+        "comparison_mode": "single_source",
+        "single_source": None,
+        "generated_at": None,
+    }
+
+
 def _build_response():
     """Cached analysis payload + a LIVE per-source freshness block.
 
     Shallow-copies the cached data so we never mutate it while overlaying the
     freshly computed `sources` block.
     """
-    data = dict(_cache["data"])
+    data = dict(_cache["data"] or _empty_payload())
+    data["status"] = _status()
     data["sample_sources"] = sorted(SAMPLE_SOURCES)
     data["sources"] = _sources_freshness()
     return data
@@ -379,12 +409,22 @@ async def health():
 async def get_odds():
     """Return the analysed odds, served from cache when it's still fresh.
 
-    Fast path: a fresh cache returns instantly. Otherwise (cache empty or older
-    than CACHE_TTL_SECONDS) we scrape, refresh the cache, and return the result.
+    Before the first refresh has produced any data we do NOT make the caller wait
+    for the ~2.5 minute scrape: we make sure one is running and return a
+    `warming_up` placeholder immediately, which the frontend polls.
+
+    Fast path: a fresh cache returns instantly. Otherwise (cache older than
+    CACHE_TTL_SECONDS) we scrape, refresh the cache, and return the result.
     Either way the response carries a live per-source freshness block (`sources`)
     so the caller can tell which sources are fresh vs stale. A single failing
     source never 500s this endpoint — it just shows up as stale/failed.
     """
+    global _warmup_task
+    if _cache["data"] is None:
+        # Start a scrape if none is in flight (the startup warm-up normally is).
+        if _warmup_task is None or _warmup_task.done():
+            _warmup_task = asyncio.create_task(refresh_cache())
+        return _build_response()
     if not _is_fresh():
         await refresh_cache()
     return _build_response()

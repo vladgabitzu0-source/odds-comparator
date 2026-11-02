@@ -85,8 +85,12 @@ npm run dev
 needed. For a production build set `VITE_API_URL` to the backend's URL at build
 time (see `frontend/.env.example`); if it is unset the build calls the same origin.
 
-The first scrape takes a couple of minutes. Until it finishes, the API request
-waits for it.
+The first scrape takes a couple of minutes. Until the first refresh has
+succeeded, `GET /api/odds` answers immediately with `status: "warming_up"` and
+empty data instead of waiting, and the frontend shows a "first refresh in
+progress, usually 2-3 minutes" message and polls every 10 seconds. `status` is
+`ok` once a refresh has succeeded, or `unavailable` if refreshes finished but
+none succeeded.
 
 ## Superbet-only mode
 
