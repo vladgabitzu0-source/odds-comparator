@@ -11,7 +11,7 @@ const API_URL = `${API_BASE}/api/odds`;
 
 // Generic landing page per source. Used ONLY as a fallback when a match has no
 // per-match deep link. Mirrors AFFILIATE_LINKS in calculator.py. "sample" is the
-// static demo source (labelled "Demo Source"), not a real bookmaker.
+// static sample source (labelled "Sample data"), not a real bookmaker.
 const FALLBACK_LINKS = {
   superbet: "https://superbet.ro/pariuri-sportive/fotbal",
   sample: "https://example.com/date-demo",
@@ -93,6 +93,59 @@ function updatedLabel(mins) {
   return `Actualizat acum ${mins} de minute`;
 }
 
+// Format an ISO timestamp as a short local date/time for the stale banners
+// (e.g. "02.11.2026, 14:05"). Returns null when there is no timestamp.
+function formatTimestamp(iso) {
+  const ms = iso ? Date.parse(iso) : NaN;
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toLocaleString("ro-RO", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+// One banner per source that is stale or whose latest refresh failed. Shows the
+// last SUCCESSFUL update time (from the API) instead of implying fresh data.
+function SourceBanners({ sources }) {
+  const entries = Object.entries(sources || {}).filter(
+    ([, src]) => src.stale || src.ok_last_run === false,
+  );
+  if (entries.length === 0) return null;
+  return (
+    <div className="mb-4 flex flex-col gap-2">
+      {entries.map(([key, src]) => {
+        const name = src.label || key;
+        const last = formatTimestamp(src.last_success_at || src.last_success);
+        const kind = src.ok_last_run === false ? "Actualizare eșuată" : "Date vechi";
+        return (
+          <div
+            key={key}
+            role="status"
+            className="rounded px-3 py-2 text-[12px]"
+            style={{
+              backgroundColor: C.card,
+              border: `1px solid ${C.border}`,
+              color: C.muted,
+            }}
+          >
+            <span style={{ color: C.red, fontWeight: 500 }}>{kind}</span>
+            {" · "}
+            <span style={{ color: C.text }}>{name}</span>
+            {src.is_sample ? " (date exemplu)" : ""}
+            {": "}
+            {last
+              ? `ultima actualizare reușită ${last}`
+              : "nicio actualizare reușită încă"}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Show odds consistently as two decimals (1.9 -> "1.90"). Falls back to the raw
 // value if it isn't a finite number, so unexpected data never crashes a render.
 function fmtOdd(odd) {
@@ -165,7 +218,7 @@ function OutcomeCell({ outcome, match, best }) {
     <td className="px-3 py-2 align-top">
       <div className="flex flex-col gap-0.5">
         {line("superbet", "Superbet", sb)}
-        {line("sample", "Demo Source", sp)}
+        {line("sample", "Sample data", sp)}
       </div>
       {isBestOutcome && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1">
@@ -467,7 +520,6 @@ export default function App() {
   const [data, setData] = useState(null); // { count, main, obscure, best_odds_per_bookmaker }
   const [error, setError] = useState(null);
   const [tab, setTab] = useState("main"); // "main" | "obscure" | "best"
-  const [fetchedAt, setFetchedAt] = useState(null); // client fetch time (ms)
   const [now, setNow] = useState(Date.now()); // ticks so "acum X minute" updates
 
   // Fetch once when the component first mounts.
@@ -479,7 +531,6 @@ export default function App() {
       })
       .then((payload) => {
         setData(payload);
-        setFetchedAt(Date.now());
       })
       .catch((err) => setError(err.message));
   }, []);
@@ -514,10 +565,17 @@ export default function App() {
   // Prefer the server's scrape-completion time (generated_at, ISO 8601 UTC) so
   // the indicator reflects how old the DATA is, not when this browser fetched
   // it. Fall back to the client fetch time if an older backend omits the field.
+  // Freshness comes from the server: generated_at is only set once at least one
+  // source refreshed successfully. If it is missing we show NO "updated" claim
+  // (rather than a misleading "0 minutes ago"); the banners explain why.
   const generatedMs = data.generated_at ? Date.parse(data.generated_at) : NaN;
-  const baseMs = Number.isFinite(generatedMs) ? generatedMs : fetchedAt;
-  const minutesAgo =
-    baseMs === null ? 0 : Math.max(0, Math.floor((now - baseMs) / 60000));
+  const hasFreshness = Number.isFinite(generatedMs);
+  const minutesAgo = hasFreshness
+    ? Math.max(0, Math.floor((now - generatedMs) / 60000))
+    : null;
+  const anyProblem = Object.values(data.sources || {}).some(
+    (src) => src.stale || src.ok_last_run === false,
+  );
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: C.bg }}>
@@ -573,17 +631,22 @@ export default function App() {
       </header>
 
       <main className="mx-auto max-w-5xl px-6 py-6">
-        {/* "Actualizat acum X minute" — based on when the browser fetched the
-            data (the API doesn't expose a scrape timestamp). */}
-        <div className="mb-4 flex items-center gap-2">
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: C.green }}
-          />
-          <span className="text-[12px]" style={{ color: C.muted }}>
-            {updatedLabel(minutesAgo)}
-          </span>
-        </div>
+        {/* Banner per stale/failed source, with its last successful update. */}
+        <SourceBanners sources={data.sources} />
+
+        {/* "Actualizat acum X minute" — based on the server's generated_at, and
+            hidden when no source has ever refreshed successfully. */}
+        {hasFreshness && (
+          <div className="mb-4 flex items-center gap-2">
+            <span
+              className="h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: anyProblem ? C.red : C.green }}
+            />
+            <span className="text-[12px]" style={{ color: C.muted }}>
+              {updatedLabel(minutesAgo)}
+            </span>
+          </div>
+        )}
 
         {tab === "best" ? (
           <BestOddsSection byBookmaker={data.best_odds_per_bookmaker} />
