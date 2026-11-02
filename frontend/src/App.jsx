@@ -592,7 +592,7 @@ export default function App() {
   const [data, setData] = useState(null); // { count, main, obscure, best_odds_per_bookmaker }
   const [error, setError] = useState(null);
   const [tab, setTab] = useState("main"); // "main" | "obscure" | "best"
-  const [now, setNow] = useState(Date.now()); // ticks so "acum X minute" updates
+  const [now, setNow] = useState(() => Date.now()); // ticks so "acum X minute" updates
 
   // Fetch on mount. While the backend reports "warming_up" (first refresh still
   // running) we poll every 10 seconds until real data arrives.
