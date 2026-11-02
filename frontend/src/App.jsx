@@ -428,6 +428,79 @@ function BestOddsSection({ byBookmaker }) {
   );
 }
 
+// Single-source mode: fewer than two real sources, so there is nothing to compare
+// against. We list the one source's own matches and say why there is no ranking.
+function SingleSourceSection({ block }) {
+  const matches = block?.matches ?? [];
+  return (
+    <section>
+      <div className="mb-4">
+        <h2 className="text-lg" style={{ fontWeight: 500, color: C.text }}>
+          Cotele {block?.label || "sursei"} (o singură sursă)
+        </h2>
+        <p
+          role="note"
+          className="mt-2 rounded px-3 py-2 text-[12px]"
+          style={{
+            backgroundColor: C.card,
+            border: `1px solid ${C.border}`,
+            color: C.muted,
+          }}
+        >
+          Compararea între case de pariuri are nevoie de cel puțin două surse.
+          Momentan este disponibilă o singură sursă reală, așa că afișăm doar
+          cotele ei, fără clasament de valoare.
+        </p>
+      </div>
+      {matches.length === 0 ? (
+        <p className="text-sm" style={{ color: C.muted }}>
+          Nicio cotă disponibilă.
+        </p>
+      ) : (
+        <div
+          className="overflow-x-auto rounded-lg"
+          style={{ backgroundColor: C.card, border: `1px solid ${C.border}` }}
+        >
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ color: C.muted }} className="text-left text-[12px]">
+                <th className="px-3 py-2 font-normal">Meci</th>
+                <th className="px-3 py-2 text-right font-normal">1</th>
+                <th className="px-3 py-2 text-right font-normal">X</th>
+                <th className="px-3 py-2 text-right font-normal">2</th>
+              </tr>
+            </thead>
+            <tbody>
+              {matches.map((m) => (
+                <tr key={m.link + m.match} style={{ borderTop: `1px solid ${C.border}` }}>
+                  <td className="px-3 py-2">
+                    <a
+                      href={m.link}
+                      target="_blank"
+                      rel="sponsored noopener noreferrer"
+                      style={{ color: C.text }}
+                    >
+                      {m.match}
+                    </a>
+                    {m.competition && (
+                      <div className="text-[11px]" style={{ color: C.muted }}>
+                        {m.competition}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right">{fmtOdd(m.home)}</td>
+                  <td className="px-3 py-2 text-right">{fmtOdd(m.draw)}</td>
+                  <td className="px-3 py-2 text-right">{fmtOdd(m.away)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // Chart/odds motif in a rounded square with a thin gold border — the brand mark.
 function BrandIcon() {
   return (
@@ -649,7 +722,11 @@ export default function App() {
         )}
 
         {tab === "best" ? (
-          <BestOddsSection byBookmaker={data.best_odds_per_bookmaker} />
+          data.comparison_mode === "single_source" ? (
+            <SingleSourceSection block={data.single_source} />
+          ) : (
+            <BestOddsSection byBookmaker={data.best_odds_per_bookmaker} />
+          )
         ) : (
           <MatchesTable matches={tab === "main" ? data.main : data.obscure} />
         )}

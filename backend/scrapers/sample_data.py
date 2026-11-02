@@ -129,6 +129,8 @@ def ensure_obscure_examples(superbet_matches):
             "away": base["away"],
             "competition": base["competition"],
             "url": None,
+            # Marks fabricated filler so single-source listings can exclude it.
+            "synthetic": True,
             # These sit on the Superbet side of the demo comparison.
             "source": "superbet",
             "timestamp": now,

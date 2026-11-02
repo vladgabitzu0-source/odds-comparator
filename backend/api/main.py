@@ -40,6 +40,8 @@ from analysis.calculator import (
     SAMPLE_SOURCES,
     SOURCE_NAMES,
     best_odds_per_bookmaker,
+    real_sources,
+    single_source_listing,
     calculate_value,
     scrape_all_isolated,
 )
@@ -250,13 +252,36 @@ async def refresh_cache(force=False):
         previous = _cache["data"]["generated_at"] if _cache["data"] else None
         generated_at = now_iso if any_refreshed else previous
 
+        # Single-source mode: fewer than two REAL sources have data. Sample data
+        # doesn't count (it is synthetic). Cross-bookmaker comparison is then not
+        # meaningful, so instead of the ranking we expose the one real source's
+        # own matches. With two or more real sources, behaviour is unchanged.
+        available = [n for n in real_sources(SOURCE_NAMES) if _sources[n]["matches"]]
+        single_source = len(available) < 2
+        if single_source:
+            only = available[0] if available else None
+            best_odds = {}
+            single_block = {
+                "source": only,
+                "label": BOOKMAKER_NAMES.get(only) if only else None,
+                "matches": single_source_listing(only, _sources[only]["matches"])
+                if only else [],
+                "notice": "Cross-bookmaker comparison needs at least two sources.",
+            }
+        else:
+            best_odds = best_odds_per_bookmaker(results)
+            single_block = None
+
         _cache["data"] = {
             "count": len(results),
             "main": main,
             "obscure": obscure,
             # Per-bookmaker "best 5 odds of the day", computed across ALL common
             # matches (both tiers) — see Tab 2 in the project spec.
-            "best_odds_per_bookmaker": best_odds_per_bookmaker(results),
+            # (Empty in single-source mode; see single_source below.)
+            "best_odds_per_bookmaker": best_odds,
+            "comparison_mode": "single_source" if single_source else "multi_source",
+            "single_source": single_block,
             # Wall-clock UTC time of the last refresh in which at least one
             # source succeeded (see above), ISO 8601 (e.g.
             # "2026-06-30T12:34:56.789012+00:00"). The frontend diffs this

@@ -489,6 +489,35 @@ def _bookmaker_picks(results, key):
     return picks
 
 
+def real_sources(source_names):
+    """The names in `source_names` that are real bookmakers (not sample data)."""
+    return [n for n in source_names if n not in SAMPLE_SOURCES]
+
+
+def single_source_listing(key, matches):
+    """List one real source's own matches with their odds (no comparison).
+
+    Used when fewer than two real sources are available: divergence needs a second
+    source, so instead of an empty view we show what this source offers. Fabricated
+    filler fixtures (flagged "synthetic") are left out so only real fixtures show.
+    """
+    fallback = AFFILIATE_LINKS[key]
+    listing = []
+    for m in matches:
+        if m.get("synthetic"):
+            continue
+        listing.append({
+            "match": m["match"],
+            "tier": _tier(m["match"]),
+            "competition": m.get("competition"),
+            "home": m["home"],
+            "draw": m["draw"],
+            "away": m["away"],
+            "link": _with_affiliate(m.get("url") or fallback, key),
+        })
+    return listing
+
+
 def best_odds_per_bookmaker(results, limit=5):
     """For each bookmaker, the `limit` matches where it is most generous.
 
@@ -499,9 +528,9 @@ def best_odds_per_bookmaker(results, limit=5):
     top `limit`.
 
     Each bookmaker is computed independently (see _bookmaker_picks): an error or
-    missing data for one never empties the other's list. NOTE: divergence needs a
-    second source to compare against, so with only one source available there are
-    no common matches and every list is simply empty.
+    missing data for one never empties the other's list. Divergence needs a real
+    second source to compare against; the API therefore skips this ranking in
+    single-source mode and uses single_source_listing instead.
 
     Returns a dict keyed by display name, e.g.:
         {"Superbet":    [ {match, outcome, odd, divergence, link}, ... ],

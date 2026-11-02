@@ -99,6 +99,16 @@ Because the sample source is derived from Superbet, the values it produces are
 not real market signals. If the Superbet scrape fails, the sample source is empty
 too, and the API keeps serving the last good data with a stale/failed marker.
 
+**Single-source mode.** Sample data does not count as a source for comparison.
+When fewer than two real sources have data (always the case in this repository),
+the API returns `comparison_mode: "single_source"` and the "best odds" tab lists
+the real source's own matches with their 1X2 odds, under a notice that
+cross-bookmaker comparison needs at least two sources. In this mode
+`best_odds_per_bookmaker` is empty and the matches are in `single_source.matches`
+(fabricated filler fixtures are excluded). With two or more real sources the
+response is `comparison_mode: "multi_source"` and the per-bookmaker ranking is
+returned as before.
+
 ## The second bookmaker
 
 The scraper for the second bookmaker is **not part of this repository**. The
@@ -132,8 +142,9 @@ and register it in `SOURCES` in `calculator.py`.
   processes. There is no database.
 - Scraping depends on the bookmaker's page structure and can break when it
   changes.
-- Divergence needs at least two sources. With only one real source the
-  per-bookmaker best-odds lists depend on the sample data and are not meaningful.
+- Divergence needs at least two real sources. With one, the best-odds tab shows
+  that source's odds without a value ranking, and the comparison tabs rely on
+  sample data.
 - Fixture matching is heuristic (fuzzy team names) and can mispair fixtures.
 - Odds above 10.0 are skipped to avoid meaningless divergences.
 - There are no automated tests in this repository.
