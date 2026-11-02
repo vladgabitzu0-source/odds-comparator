@@ -1,5 +1,7 @@
 # ComparaCote.ro
 
+[![CI](https://github.com/vladgabitzu0-source/odds-comparator/actions/workflows/ci.yml/badge.svg)](https://github.com/vladgabitzu0-source/odds-comparator/actions/workflows/ci.yml)
+
 A football 1X2 odds comparison tool. It scrapes pre-match odds, matches the same
 fixture across sources, converts every price to an implied probability
 (`p = 1 / odd`), and flags outcomes where one source is noticeably more generous
