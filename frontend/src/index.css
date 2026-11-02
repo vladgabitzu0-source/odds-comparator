@@ -60,7 +60,7 @@ body {
   background-color: rgba(232, 190, 106, 0.07);
 }
 
-/* Each odd is an affiliate link. No underline/blue-link look — only the pointer
+/* Each odd is an outbound link. No underline/blue-link look — only the pointer
    cursor and a gold hover signal it's clickable, matching the best-odd accent. */
 .odd-link {
   cursor: pointer;
@@ -74,18 +74,18 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Affiliate rows inside the "best odds per bookmaker" cards.
+   Outbound-link rows inside the "best odds per bookmaker" cards.
 --------------------------------------------------------------------------- */
-.affiliate-row {
+.outbound-link {
   transition: background-color 0.15s ease;
 }
-.affiliate-row:hover {
+.outbound-link:hover {
   background-color: rgba(255, 255, 255, 0.035);
 }
-.aff-odd {
+.outbound-odd {
   transition: color 0.15s ease;
 }
-.affiliate-row:hover .aff-odd {
+.outbound-link:hover .outbound-odd {
   color: var(--gold);
 }
 

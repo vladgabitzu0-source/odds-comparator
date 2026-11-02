@@ -264,7 +264,7 @@ def calculate_value(superbet_matches, sample_matches):
                 "superbet": superbet_odds,
                 "sample": sample_odds,
                 # Per-match deep links from each source (may be None if a source
-                # didn't expose one). Used to build the affiliate links below.
+                # didn't expose one). Used for the outbound links below.
                 "superbet_url": sb.get("url"),
                 "sample_url": sp.get("url"),
                 "analysis": analysis,
@@ -412,21 +412,10 @@ def top_value_bets(results, limit=10):
 # Generic landing page per source. Used ONLY as a fallback when a match has no
 # per-match deep link (the live scraper normally captures one; the sample source
 # never has one). The sample source has no real bookmaker behind it, so it points
-# at a harmless placeholder rather than any affiliate destination.
-AFFILIATE_LINKS = {
+# at a harmless placeholder.
+LANDING_PAGES = {
     "superbet": "https://superbet.ro/pariuri-sportive/fotbal",
     "sample": "https://example.com/date-demo",
-}
-
-# Your affiliate tracking parameter per source, appended to every outgoing link
-# as a query-string (e.g. "btag=12345"). Each site uses its own parameter
-# name/value. Currently EMPTY = inactive: links go straight to the deep link with
-# no tracking param. Fill these in from your affiliate dashboards to activate
-# tracking — the wiring is already in place (see _with_affiliate below). The
-# sample source is demo data with no affiliate deal, so it stays empty.
-AFFILIATE_PARAMS = {
-    "superbet": "",
-    "sample": "",
 }
 
 # Internal source key -> display name used as the keys of the API response. The
@@ -437,20 +426,6 @@ BOOKMAKER_NAMES = {"superbet": "Superbet", "sample": "Sample data"}
 # Sources that are synthetic rather than real bookmakers. The API and UI use this
 # to label them clearly as sample data.
 SAMPLE_SOURCES = frozenset({"sample"})
-
-
-def _with_affiliate(url, key):
-    """Append this bookmaker's affiliate tracking parameter to a URL.
-
-    Picks "?" or "&" depending on whether the URL already has a query-string, so
-    we never produce a malformed link. Returns the URL unchanged when no tracking
-    parameter is configured for this bookmaker.
-    """
-    param = AFFILIATE_PARAMS.get(key, "")
-    if not param:
-        return url
-    separator = "&" if "?" in url else "?"
-    return f"{url}{separator}{param}"
 
 
 def _bookmaker_picks(results, key):
@@ -475,15 +450,14 @@ def _bookmaker_picks(results, key):
         except (KeyError, TypeError):
             continue  # malformed entry: skip it, keep the rest
         # Prefer the per-match deep link; fall back to the site's football
-        # landing page only when no deep link was captured. Either way we append
-        # the affiliate tracking parameter.
-        deep_link = result.get(f"{key}_url") or AFFILIATE_LINKS[key]
+        # landing page only when no deep link was captured.
+        link = result.get(f"{key}_url") or LANDING_PAGES[key]
         picks.append({
             "match": result["match"],
             "outcome": best_outcome,
             "odd": odd,
             "divergence": divergence,
-            "link": _with_affiliate(deep_link, key),
+            "link": link,
         })
     picks.sort(key=lambda p: p["divergence"], reverse=True)
     return picks
@@ -501,7 +475,7 @@ def single_source_listing(key, matches):
     source, so instead of an empty view we show what this source offers. Fabricated
     filler fixtures (flagged "synthetic") are left out so only real fixtures show.
     """
-    fallback = AFFILIATE_LINKS[key]
+    fallback = LANDING_PAGES[key]
     listing = []
     for m in matches:
         if m.get("synthetic"):
@@ -513,7 +487,7 @@ def single_source_listing(key, matches):
             "home": m["home"],
             "draw": m["draw"],
             "away": m["away"],
-            "link": _with_affiliate(m.get("url") or fallback, key),
+            "link": m.get("url") or fallback,
         })
     return listing
 

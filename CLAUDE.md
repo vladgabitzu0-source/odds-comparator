@@ -35,5 +35,5 @@ cd frontend; npm run lint; npm run build
 - One scraper per file; a failing source must never break the others.
 - Never print raw HTML/JSON from scraped pages; log one-line summaries.
 - Prefer stable Playwright locators (text, structural attributes) over long CSS paths.
-- Affiliate-style links use `target="_blank"` and `rel="sponsored noopener noreferrer"`.
+- Outbound bookmaker links use `target="_blank"` and `rel="noopener noreferrer"`.
 - Sample data must always be labeled as sample data in the API and UI.

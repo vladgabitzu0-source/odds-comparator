@@ -9,7 +9,7 @@ const API_BASE =
 const API_URL = `${API_BASE}/api/odds`;
 
 // Generic landing page per source. Used ONLY as a fallback when a match has no
-// per-match deep link. Mirrors AFFILIATE_LINKS in calculator.py. "sample" is the
+// per-match deep link. Mirrors LANDING_PAGES in calculator.py. "sample" is the
 // static sample source (labelled "Sample data"), not a real bookmaker.
 const FALLBACK_LINKS = {
   superbet: "https://superbet.ro/pariuri-sportive/fotbal",
@@ -181,7 +181,7 @@ function OutcomeCell({ outcome, match, best }) {
 
   // One "Bookmaker  odd" line. `winner` = this site has the higher odd for the
   // outcome (emphasised). `mark` = this exact odd is the row's best value. The
-  // odd itself is an affiliate link to the bookmaker's per-match deep link,
+  // odd itself is an outbound link to the bookmaker's per-match deep link,
   // falling back to its football landing page when no deep link was captured.
   const line = (site, label, odd) => {
     const winner = winnerSite === site;
@@ -192,13 +192,12 @@ function OutcomeCell({ outcome, match, best }) {
         <span className="text-[11px]" style={{ color: C.muted }}>
           {label}
         </span>
-        {/* Affiliate link. rel="sponsored" marks it as a paid link;
-            noopener/noreferrer for safety. Styling matches the plain odd — only
+        {/* Outbound link; noopener/noreferrer for safety. Styling matches the plain odd — only
             the cursor/hover signals it's clickable (best-odd lights up gold). */}
         <a
           href={href}
           target="_blank"
-          rel="sponsored noopener noreferrer"
+          rel="noopener noreferrer"
           className={
             mark ? "odd-link best-odd px-1.5 py-px" : "odd-link px-1.5 py-px"
           }
@@ -322,7 +321,7 @@ function MatchesTable({ matches }) {
 }
 
 // One card = one bookmaker's top 5 most valuable odds of the day. Each row is an
-// affiliate link out to the bookmaker (deep-link per match where captured).
+// outbound link to the bookmaker (deep-link per match where captured).
 function BestOddsCard({ bookmaker, picks }) {
   return (
     <div
@@ -358,13 +357,13 @@ function BestOddsCard({ bookmaker, picks }) {
               key={`${p.match}-${p.outcome}`}
               style={{ borderTop: i === 0 ? "none" : `1px solid ${C.border}` }}
             >
-              {/* Whole row is the affiliate link. rel="sponsored" marks it as a
-                  paid link; noopener/noreferrer for safety. */}
+              {/* Whole row is a plain outbound link; noopener/noreferrer for
+                  safety. */}
               <a
                 href={p.link}
                 target="_blank"
-                rel="sponsored noopener noreferrer"
-                className="affiliate-row flex items-center gap-3 px-4 py-2.5 text-sm"
+                rel="noopener noreferrer"
+                className="outbound-link flex items-center gap-3 px-4 py-2.5 text-sm"
               >
                 <span
                   className="w-4 shrink-0 text-center text-[12px]"
@@ -390,7 +389,7 @@ function BestOddsCard({ bookmaker, picks }) {
                   >
                     +{(p.divergence * 100).toFixed(1)}%
                   </span>
-                  <span className="aff-odd" style={{ fontWeight: 500 }}>
+                  <span className="outbound-odd" style={{ fontWeight: 500 }}>
                     {fmtOdd(p.odd)}
                   </span>
                 </span>
@@ -476,7 +475,7 @@ function SingleSourceSection({ block }) {
                     <a
                       href={m.link}
                       target="_blank"
-                      rel="sponsored noopener noreferrer"
+                      rel="noopener noreferrer"
                       style={{ color: C.text }}
                     >
                       {m.match}
@@ -568,7 +567,7 @@ function NavTab({ active, onClick, children }) {
   );
 }
 
-// Footer disclaimer — responsible gambling + affiliate transparency.
+// Footer disclaimer — responsible gambling notice.
 function Footer() {
   return (
     <footer
@@ -581,8 +580,7 @@ function Footer() {
       >
         ComparaCote.ro compară cote afișate de operatori licențiați ONJN. Cotele
         se modifică în timp real — verifică valoarea finală pe site-ul casei de
-        pariuri. Pariurile implică risc. 18+ | Joacă responsabil. Conținut cu
-        linkuri de afiliere.
+        pariuri. Pariurile implică risc. 18+ | Joacă responsabil.
       </p>
     </footer>
   );

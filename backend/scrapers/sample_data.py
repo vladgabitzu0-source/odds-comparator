@@ -160,7 +160,7 @@ async def scrape_sample(superbet_matches):
             "away": _nudge(m["away"]),
             "competition": m.get("competition"),
             # No real per-match page for demo data — None makes the analysis fall
-            # back to this source's landing link (see AFFILIATE_LINKS in
+            # back to this source's landing link (see LANDING_PAGES in
             # calculator.py).
             "url": None,
             "source": SOURCE,
